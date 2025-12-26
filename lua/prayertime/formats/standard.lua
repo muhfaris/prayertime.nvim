@@ -1,3 +1,4 @@
+local util = require("prayertime.util")
 local M = {}
 
 local defaults = {
@@ -41,32 +42,6 @@ local cache_file = cache_dir .. "/schedule.json"
 local MAX_FETCH_ATTEMPTS = 3
 local RETRY_DELAY_MS = 1000
 local load_cache
-
-local function time_to_minutes(value)
-	if type(value) ~= "string" then
-		return nil
-	end
-	local hour_str, minute_str = value:match("^(%d%d?):(%d%d)$")
-	if not hour_str then
-		return nil
-	end
-	local hour = tonumber(hour_str)
-	local minute = tonumber(minute_str)
-	if not hour or not minute then
-		return nil
-	end
-	if hour < 0 or hour > 23 or minute < 0 or minute > 59 then
-		return nil
-	end
-	return hour * 60 + minute
-end
-
-local function minutes_to_time(total)
-	total = total % (24 * 60)
-	local hours = math.floor(total / 60)
-	local minutes = total % 60
-	return ("%02d:%02d"):format(hours, minutes)
-end
 
 local function clone_table(value)
 	if value == nil then
@@ -197,16 +172,16 @@ end
 local function compute_derived_times()
 	local derived = clone_table(prayer_times)
 	derived_ranges = {}
-	local sunrise_minutes = time_to_minutes(prayer_times.Sunrise)
-	local dhuhr_minutes = time_to_minutes(prayer_times.Dhuhr)
+	local sunrise_minutes = util.parse_time_str(prayer_times.Sunrise)
+	local dhuhr_minutes = util.parse_time_str(prayer_times.Dhuhr)
 
 	if sunrise_minutes and dhuhr_minutes and dhuhr_minutes > sunrise_minutes then
 		local offset = tonumber(config.duha_offset_minutes) or defaults.duha_offset_minutes
 		offset = math.max(0, offset)
-		local start_minutes = sunrise_minutes + offset
-		if start_minutes < dhuhr_minutes then
-			local duha_start = minutes_to_time(start_minutes)
-			local duha_finish = minutes_to_time(dhuhr_minutes)
+			local start_minutes = sunrise_minutes + offset
+			if start_minutes < dhuhr_minutes then
+				local duha_start = util.minutes_to_time(start_minutes)
+				local duha_finish = util.minutes_to_time(dhuhr_minutes)
 			derived.Duha = duha_start
 			derived_ranges.Duha = {
 				start = duha_start,
@@ -312,11 +287,11 @@ function M.get_status()
 		return "Loading..."
 	end
 
-	local now_minutes = time_to_minutes(os.date("%H:%M"))
+	local now_minutes = util.parse_time_str(os.date("%H:%M"))
 	local duha_range = derived_ranges.Duha
 	if duha_range and duha_range.start and now_minutes then
-		local duha_start = time_to_minutes(duha_range.start)
-		local duha_end = time_to_minutes(duha_range.finish or prayer_times.Dhuhr)
+			local duha_start = util.parse_time_str(duha_range.start)
+			local duha_end = util.parse_time_str(duha_range.finish or prayer_times.Dhuhr)
 		if duha_start and now_minutes >= duha_start then
 			if not duha_end or now_minutes < duha_end then
 				if duha_range.finish then
@@ -333,7 +308,7 @@ function M.get_status()
 	for _, name in ipairs(prayer_order) do
 		local time = derived_times[name] or prayer_times[name]
 		if time then
-			local minutes = time_to_minutes(time)
+				local minutes = util.parse_time_str(time)
 			if minutes and now_minutes and minutes >= now_minutes then
 				next_name = name
 				next_time = time

@@ -1,3 +1,4 @@
+local util = require("prayertime.util")
 local formats = {
 	standard = require("prayertime.formats.standard"),
 }
@@ -21,25 +22,6 @@ local TODAY_COLUMNS = {
 	{ key = "Maghrib", label = "Maghrib" },
 	{ key = "Isha", label = "Isya" },
 }
-
-local function parse_time(value)
-	if type(value) ~= "string" then
-		return nil
-	end
-	local hour_str, minute_str = value:match("^(%d%d?):(%d%d)$")
-	if not hour_str then
-		return nil
-	end
-	local hour = tonumber(hour_str)
-	local minute = tonumber(minute_str)
-	if not hour or not minute then
-		return nil
-	end
-	if hour < 0 or hour > 23 or minute < 0 or minute > 59 then
-		return nil
-	end
-	return hour * 60 + minute
-end
 
 local function format_duration(minutes)
 	if not minutes or minutes < 0 then
@@ -265,7 +247,7 @@ local function build_today_lines()
 		if type(value) ~= "string" or value == "" then
 			value = "--:--"
 		end
-		local minutes = parse_time(value)
+		local minutes = util.parse_time_str(value)
 		entries[#entries + 1] = {
 			key = column.key,
 			label = label,
@@ -275,7 +257,7 @@ local function build_today_lines()
 		label_width = math.max(label_width, vim.fn.strdisplaywidth(label))
 	end
 
-	local now_minutes = parse_time(os.date("%H:%M")) or 0
+	local now_minutes = util.parse_time_str(os.date("%H:%M")) or 0
 	local next_index, current_index = nil, nil
 	local valid_indices = {}
 
