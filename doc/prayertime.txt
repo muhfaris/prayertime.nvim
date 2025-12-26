@@ -12,6 +12,7 @@ Features:
   • Lualine/statusline friendly status string via |prayertime.get_status()|.
   • Commands for reloading, switching formats, and showing cached schedules.
   • Floating “Prayer Today” panel or notification pop-up.
+  • Persists the last fetched schedule under |stdpath()| for instant reloads.
   • Public helpers for custom UI integrations and alternative data providers.
 
 ==============================================================================
@@ -95,6 +96,29 @@ on the provided city/country/coordinates, but explicitly setting the method
 keeps results deterministic.
 
 ==============================================================================
+CACHE & RELIABILITY                                   *prayertime.nvim-cache*
+
+prayertime.nvim persists the latest successful API response to
+`stdpath("cache") .. "/prayertime/schedule.json"`. When Neovim starts, the
+plugin reuses that cache as long as the active city/country/method matches,
+so the statusline, `:PrayerToday`, and helpers show data immediately—even
+offline—until the next refresh completes.
+
+Each network fetch retries up to three times (1s apart). After the final
+attempt fails you will see an error notification.
+
+==============================================================================
+HEALTH CHECK                                       *prayertime.nvim-health*
+
+Use `:checkhealth prayertime` to confirm the plugin is ready. The report
+verifies:
+
+  • Neovim version meets the 0.9+ requirement.
+  • `plenary.curl` is installed (required for HTTP requests).
+  • Optional `nvim-notify` availability (informational if missing).
+  • Connectivity to Aladhan’s API using the active/default config.
+
+==============================================================================
 COMMANDS                                             *prayertime.nvim-commands*
 
   :PrayerReload              Fetch the latest schedule immediately.
@@ -115,6 +139,27 @@ is `"float"` (default) a bordered window anchors to the bottom-right corner,
 highlights the current and upcoming prayer, and auto-closes after a few
 seconds (or when pressing `q` / <Esc>). With `"notify"` the table is sent via
 |vim.notify|/nvim-notify.
+
+==============================================================================
+AUTOMATION & EVENTS                               *prayertime.nvim-events*
+
+Whenever the background timer detects that it is time for a prayer, prayertime.nvim
+fires `:doautocmd User PrayertimeAdhan`. Handlers receive `ev.data.prayer`
+and `ev.data.time` (HH:MM). Example:
+>
+  vim.api.nvim_create_autocmd("User", {
+    pattern = "PrayertimeAdhan",
+    callback = function(ev)
+      vim.notify(("Time for %s (%s)"):format(ev.data.prayer, ev.data.time))
+    end,
+  })
+<
+Use this hook to trigger custom audio, lighting, or integration scripts.
+
+Callback fields:
+
+  • `ev.data.prayer` — string with the prayer name (Fajr, Dhuhr, etc.).
+  • `ev.data.time`   — string HH:MM timestamp for that prayer.
 
 ==============================================================================
 FORMATS AND EXTENSIBILITY                       *prayertime.nvim-formats*
@@ -162,4 +207,3 @@ LICENSE & SUPPORT                                     *prayertime.nvim-help*
 
 Project home: https://github.com/muhfaris/prayertime.nvim
 Report issues and feature requests on the repository’s tracker.
-

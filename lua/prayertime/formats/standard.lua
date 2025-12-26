@@ -36,6 +36,11 @@ do
 end
 
 local curl_client = nil
+local cache_dir = vim.fn.stdpath("cache") .. "/prayertime"
+local cache_file = cache_dir .. "/schedule.json"
+local MAX_FETCH_ATTEMPTS = 3
+local RETRY_DELAY_MS = 1000
+local load_cache
 
 local function time_to_minutes(value)
 	if type(value) ~= "string" then
@@ -70,9 +75,60 @@ local function clone_table(value)
 	return vim.tbl_deep_extend("force", {}, value)
 end
 
+local function config_signature(cfg)
+	if type(cfg) ~= "table" then
+		return ""
+	end
+	return table.concat({
+		cfg.city or defaults.city,
+		cfg.country or defaults.country,
+		tostring(cfg.method or defaults.method),
+		tostring(cfg.duha_offset_minutes or defaults.duha_offset_minutes),
+	}, "::")
+end
+
+local function ensure_cache_dir()
+	local stat = vim.loop.fs_stat(cache_dir)
+	if stat and stat.type == "directory" then
+		return true
+	end
+	local ok, result = pcall(vim.fn.mkdir, cache_dir, "p")
+	return ok and result ~= 0
+end
+
+local function save_cache()
+	if vim.tbl_isempty(prayer_times) then
+		return
+	end
+	local payload = {
+		config = clone_table(config),
+		prayer_times = clone_table(prayer_times),
+		last_payload = clone_table(last_payload),
+		last_updated = last_updated,
+	}
+	local ok, encoded = pcall(vim.json.encode, payload)
+	if not ok or not encoded then
+		return
+	end
+	if not ensure_cache_dir() then
+		return
+	end
+	pcall(vim.fn.writefile, { encoded }, cache_file)
+end
+
 local function warn(msg)
 	vim.schedule(function()
 		vim.notify(msg, vim.log.levels.WARN)
+	end)
+end
+
+local function emit_adhan_event(name, time)
+	vim.schedule(function()
+		pcall(vim.api.nvim_exec_autocmds, "User", {
+			pattern = "PrayertimeAdhan",
+			modeline = false,
+			data = { prayer = name, time = time },
+		})
 	end)
 end
 
@@ -92,6 +148,7 @@ end
 local function apply_config(opts)
 	opts = opts or {}
 	local new = clone_table(defaults)
+	local previous_signature = config_signature(config)
 
 	if opts.city == nil then
 	-- keep default
@@ -124,6 +181,17 @@ local function apply_config(opts)
 	end
 
 	config = new
+	local new_signature = config_signature(config)
+	if new_signature ~= previous_signature then
+		prayer_times = {}
+		derived_times = {}
+		derived_ranges = {}
+		last_payload = nil
+		last_updated = nil
+	end
+	if load_cache then
+		load_cache()
+	end
 end
 
 local function compute_derived_times()
@@ -150,6 +218,30 @@ local function compute_derived_times()
 	derived_times = derived
 end
 
+load_cache = function()
+	local ok, lines = pcall(vim.fn.readfile, cache_file)
+	if not ok or not lines or vim.tbl_isempty(lines) then
+		return false
+	end
+	local content = table.concat(lines, "\n")
+	local decoded_ok, data = pcall(vim.json.decode, content)
+	if not decoded_ok or type(data) ~= "table" then
+		return false
+	end
+	if config_signature(data.config or {}) ~= config_signature(config) then
+		return false
+	end
+	if type(data.prayer_times) == "table" then
+		prayer_times = clone_table(data.prayer_times) or {}
+		compute_derived_times()
+	end
+	last_payload = clone_table(data.last_payload)
+	last_updated = data.last_updated
+	return true
+end
+
+load_cache()
+
 local function request_url()
 	local date = os.date("%d-%m-%Y")
 	return string.format(
@@ -172,19 +264,47 @@ function M.fetch_times()
 		return
 	end
 	local url = request_url()
-	curl.get(url, {
-		callback = vim.schedule_wrap(function(res)
-			local ok, data = pcall(vim.json.decode, res.body or "")
-			if not ok or not data or not data.data or not data.data.timings then
-				vim.notify("Failed to decode prayer times", vim.log.levels.ERROR)
-				return
-			end
-			last_payload = data
-			last_updated = os.time()
-			prayer_times = data.data.timings or {}
-			compute_derived_times()
-		end),
-	})
+	local function attempt_fetch(attempt)
+		curl.get(url, {
+			callback = vim.schedule_wrap(function(res)
+				local status = res and tonumber(res.status) or nil
+				local body = res and res.body or nil
+				if not status or status < 200 or status >= 400 or not body or body == "" then
+					if attempt >= MAX_FETCH_ATTEMPTS then
+						notify(
+							("prayertime: failed to fetch schedule after %d attempts"):format(MAX_FETCH_ATTEMPTS),
+							vim.log.levels.ERROR
+						)
+						return
+					end
+					vim.defer_fn(function()
+						attempt_fetch(attempt + 1)
+					end, RETRY_DELAY_MS)
+					return
+				end
+
+				local ok, data = pcall(vim.json.decode, body)
+				if not ok or not data or not data.data or not data.data.timings then
+					if attempt >= MAX_FETCH_ATTEMPTS then
+						notify("prayertime: failed to decode prayer times", vim.log.levels.ERROR)
+						return
+					end
+					vim.defer_fn(function()
+						attempt_fetch(attempt + 1)
+					end, RETRY_DELAY_MS)
+					return
+				end
+
+				last_payload = data
+				last_updated = os.time()
+				prayer_times = clone_table(data.data.timings or {}) or {}
+				compute_derived_times()
+				save_cache()
+			end),
+		})
+	end
+
+	attempt_fetch(1)
 end
 
 function M.get_status()
@@ -252,7 +372,12 @@ function M.check_for_adhan()
 	local current_time = os.date("%H:%M")
 	for name, time in pairs(derived_times) do
 		if current_time == time then
-			notify("It is time for " .. name, "info", { title = "Prayer Alert" })
+			notify(
+				("🕌 %s prayer is starting now (%s)"):format(name, time),
+				vim.log.levels.INFO,
+				{ title = "Prayer Reminder" }
+			)
+			emit_adhan_event(name, time)
 		end
 	end
 end

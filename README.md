@@ -125,6 +125,30 @@ If you omit `method`, Aladhan picks the closest authority for the provided city/
 
 These commands keep timers in sync—only one 60-second timer is ever active, even if the plugin is reloaded multiple times.
 
+## Events & Automation
+
+Each time a prayer window starts, prayertime.nvim fires a `User`
+autocommand named `PrayertimeAdhan`. Handlers receive `ev.data.prayer`
+and `ev.data.time`, making it easy to wire extra alerts:
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "PrayertimeAdhan",
+  callback = function(ev)
+    vim.notify(("Time for %s (%s)"):format(ev.data.prayer, ev.data.time))
+  end,
+})
+```
+
+Use this hook for chimes, integration scripts, or analytics.
+
+Available fields inside the autocmd callback:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `ev.data.prayer` | `string` | Name of the prayer that just started (`"Fajr"`, `"Dhuhr"`, etc.). |
+| `ev.data.time` | `string` | Scheduled HH:MM timestamp for that prayer. |
+
 ## Quick display
 
 To preview today’s schedule from Lua, call:
@@ -147,3 +171,21 @@ local derived_ranges = prayer.get_derived_ranges()
 ```
 
 `payload` includes Aladhan’s original metadata (Hijri date, timezone, etc.), so you can inspect additional fields without firing your own HTTP requests.
+
+## Caching & Reliability
+
+The latest schedule is persisted at `stdpath("cache") .. "/prayertime/schedule.json"`.
+If Neovim starts while offline (or before the next refresh completes), the plugin
+reuses that cache whenever the city/country/method match your configuration, so
+statuslines and `:PrayerToday` remain populated immediately after launch.
+
+Network requests retry up to three times (with a one-second delay) before an
+error notification is shown.
+
+## Health Check
+
+Run `:checkhealth prayertime` to verify:
+
+- Neovim version and optional `rcarriga/nvim-notify` integration.
+- `nvim-lua/plenary.nvim` availability (required for HTTP).
+- Reachability of Aladhan’s API using your current/default location settings.
