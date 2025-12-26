@@ -1,14 +1,23 @@
 # prayertime.nvim
-prayertime.nvim is a standalone Neovim plugin that surfaces accurate daily prayer schedules right inside your editor. Display the live countdown in your statusline, pop open a floating panel for the full timetable, or fire notifications so you never miss a prayer.
+---
+
+prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accurate Islamic prayer schedules directly into your workflow. Stay mindful with live statusline countdowns, floating timetables, and automated Adhan notifications without leaving your editor.
 
 ![Preview PrayerTime.Nvim](https://github.com/user-attachments/assets/c7471b94-5653-4275-94b6-462dc67489e2)
 
-## Requirements
+## ✨ Features
+- *Live Statusline:* Real-time countdown to the next prayer.
+- *Smart Caching:* Works offline by persisting the last successful fetch to disk.
+- *Automated Alerts:* Hook into User autocommands to trigger custom notifications or scripts at prayer times.
+- *Duha Support:* Automatically calculates the Duha window (Sunrise offset).
+- *Extensible:* Register custom formats or data providers.
+
+## 📋 Requirements
 - Neovim 0.9+ (`vim.pack`, `vim.json`)
 - [`nvim-lua/plenary.nvim`](https://github.com/nvim-lua/plenary.nvim)
 - Optional: [`rcarriga/nvim-notify`](https://github.com/rcarriga/nvim-notify) for nicer alerts
 
-## Installation examples
+## 🚀 Installation examples
 
 ### lazy.nvim
 ```lua
@@ -42,7 +51,7 @@ require("prayertime").setup({
 EOF
 ```
 
-## Usage
+## 🧪 Usage
 ```lua
 local prayer = require("prayertime")
 
@@ -67,7 +76,7 @@ prayer.register_format("custom", require("my_custom_format"))
 prayer.use_format("custom", { city = "Medina" })
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 `require("prayertime").setup()` accepts:
 
@@ -81,7 +90,7 @@ prayer.use_format("custom", { city = "Medina" })
 
 Invalid values fall back to the defaults and emit a `vim.notify` warning so mistakes are obvious.
 
-### Method reference
+### 🗺️ Method reference
 
 The `method` option follows [Aladhan’s calculation methods](https://aladhan.com/prayer-times-api). Set the numeric identifier shown below:
 
@@ -114,7 +123,7 @@ The `method` option follows [Aladhan’s calculation methods](https://aladhan.co
 
 If you omit `method`, Aladhan picks the closest authority for the provided city/country/coordinates, but specifying it removes that ambiguity.
 
-## Commands
+## 🎮 Commands
 
 | Command | Description |
 | --- | --- |
@@ -125,7 +134,7 @@ If you omit `method`, Aladhan picks the closest authority for the provided city/
 
 These commands keep timers in sync—only one 60-second timer is ever active, even if the plugin is reloaded multiple times.
 
-## Events & Automation
+## 🔔 Events & Automation
 
 Each time a prayer window starts, prayertime.nvim fires a `User`
 autocommand named `PrayertimeAdhan`. Handlers receive `ev.data.prayer`
@@ -149,7 +158,7 @@ Available fields inside the autocmd callback:
 | `ev.data.prayer` | `string` | Name of the prayer that just started (`"Fajr"`, `"Dhuhr"`, etc.). |
 | `ev.data.time` | `string` | Scheduled HH:MM timestamp for that prayer. |
 
-## Quick display
+## 🪟 Quick display
 
 To preview today’s schedule from Lua, call:
 
@@ -159,7 +168,7 @@ require("prayertime").show_today({ mode = "float" }) -- or "notify"
 
 The floating view anchors to the bottom-right corner and auto-closes after a few seconds (press `q` or `<Esc>` to dismiss immediately).
 
-## Introspection
+## 🔍 Introspection
 
 The standard format caches the raw API payload and exposes helpers so you can build custom UIs:
 
@@ -172,7 +181,7 @@ local derived_ranges = prayer.get_derived_ranges()
 
 `payload` includes Aladhan’s original metadata (Hijri date, timezone, etc.), so you can inspect additional fields without firing your own HTTP requests.
 
-## Caching & Reliability
+## 💾 Caching & Reliability
 
 The latest schedule is persisted at `stdpath("cache") .. "/prayertime/schedule.json"`.
 If Neovim starts while offline (or before the next refresh completes), the plugin
@@ -182,7 +191,7 @@ statuslines and `:PrayerToday` remain populated immediately after launch.
 Network requests retry up to three times (with a one-second delay) before an
 error notification is shown.
 
-## Health Check
+## 🩺 Health Check
 
 Run `:checkhealth prayertime` to verify:
 
