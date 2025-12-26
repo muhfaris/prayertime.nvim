@@ -1,4 +1,4 @@
-# prayertime.nvim
+# 🕌 prayertime.nvim
 ---
 
 prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accurate Islamic prayer schedules directly into your workflow. Stay mindful with live statusline countdowns, floating timetables, and automated Adhan notifications without leaving your editor.
