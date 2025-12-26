@@ -52,6 +52,8 @@ EOF
 ```
 
 ## 🧪 Usage
+
+### 🧱 Basic setup
 ```lua
 local prayer = require("prayertime")
 
@@ -60,12 +62,30 @@ prayer.setup({
   country = "Indonesia",
   method = 2,
 })
+```
 
+### 🎚️ Lualine integration (optional)
+You can surface the statusline string anywhere—here’s a Lualine example:
+
+```lua
 require("lualine").setup({
   sections = {
-    lualine_y = { prayer.get_status, "progress" },
+    lualine_y = { require("prayertime").get_status, "progress" },
   },
 })
+```
+
+### ⌨️ Key mappings
+Trigger your favorite commands quickly from normal mode:
+
+```lua
+vim.keymap.set("n", "<leader>pt", function()
+  require("prayertime").show_today({ mode = "float" })
+end, { desc = "PrayerTime: show today" })
+
+vim.keymap.set("n", "<leader>pr", function()
+  require("prayertime").refresh()
+end, { desc = "PrayerTime: refresh schedule" })
 ```
 
 The default `standard` format fetches timings from Aladhan, then calculates the Duha window (sunrise + offset until Dhuhr). You can register alternate formats and switch to them at runtime:
