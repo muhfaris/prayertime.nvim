@@ -1,0 +1,165 @@
+*prayertime.nvim.txt*                        prayertime.nvim documentation
+==============================================================================
+INTRODUCTION                                             *prayertime.nvim*
+
+prayertime.nvim fetches daily schedules from Aladhan.com and keeps Neovim up
+to date with the next prayer. The plugin can surface a compact statusline
+string, send notifications, or open a floating window that lists the whole
+day’s timetable, so you never leave your editor to check the clock.
+
+Features:
+  • Automatic background refresh with a single shared timer.
+  • Lualine/statusline friendly status string via |prayertime.get_status()|.
+  • Commands for reloading, switching formats, and showing cached schedules.
+  • Floating “Prayer Today” panel or notification pop-up.
+  • Public helpers for custom UI integrations and alternative data providers.
+
+==============================================================================
+REQUIREMENTS & INSTALLATION                      *prayertime.nvim-install*
+
+Dependencies:
+  • Neovim 0.9+ (uses |vim.json| and |vim.pack| APIs).
+  • https://github.com/nvim-lua/plenary.nvim for HTTP requests.
+  • Optional: https://github.com/rcarriga/nvim-notify for richer alerts.
+
+Examples:
+>
+  -- lazy.nvim
+  {
+    "muhfaris/prayertime.nvim",
+    dependencies = { "nvim-lua/plenary.nvim" },
+    opts = { city = "Jakarta", country = "Indonesia", method = 2 },
+  }
+<
+>
+  -- packer.nvim
+  use({
+    "muhfaris/prayertime.nvim",
+    requires = { "nvim-lua/plenary.nvim" },
+    config = function()
+      require("prayertime").setup({ city = "Jakarta" })
+    end,
+  })
+<
+>
+  " vim-plug
+  Plug "nvim-lua/plenary.nvim"
+  Plug "muhfaris/prayertime.nvim"
+  lua << EOF
+    require("prayertime").setup({ city = "Jakarta", country = "Indonesia" })
+  EOF
+<
+
+==============================================================================
+BASIC USAGE                                             *prayertime.nvim-usage*
+
+Minimal configuration:
+>
+  local prayer = require("prayertime")
+  prayer.setup({
+    city = "Jakarta",
+    country = "Indonesia",
+    method = 2,
+  })
+<
+
+Statusline integration (Lualine example):
+>
+  require("lualine").setup({
+    sections = {
+      lualine_y = { require("prayertime").get_status, "progress" },
+    },
+  })
+<
+
+Show today’s schedule anywhere in Lua:
+>
+  require("prayertime").show_today({ mode = "float" }) -- or "notify"
+<
+
+==============================================================================
+CONFIGURATION                                         *prayertime.nvim-config*
+
+|prayertime.setup()| accepts the following options. Invalid values fallback
+to the defaults and trigger |vim.notify()| warnings so mistakes are obvious:
+
+  format                string   "standard" format module name.
+  city                  string   "Jakarta" non-empty string.
+  country               string   "Indonesia" non-empty string.
+  method                number   2 (Aladhan API method id, see below).
+  duha_offset_minutes   number   15 (0-180 minutes after sunrise for Duha).
+
+Method identifiers follow https://aladhan.com/prayer-times-api (e.g. 2 for
+ISNA, 20 for KEMENAG). If omitted, Aladhan infers the closest authority based
+on the provided city/country/coordinates, but explicitly setting the method
+keeps results deterministic.
+
+==============================================================================
+COMMANDS                                             *prayertime.nvim-commands*
+
+  :PrayerReload              Fetch the latest schedule immediately.
+  :PrayerFormat {name}       Switch to another registered format.
+  :PrayerTimes               Print cached base timings to a notification.
+  :PrayerToday [float|notify]
+                             Show today’s schedule as a float (default) or
+                             notification.
+
+All commands share a single background timer, so re-sourcing the plugin never
+creates duplicate timers.
+
+==============================================================================
+PRAYER TODAY DISPLAY                               *prayertime.nvim-today*
+
+|prayertime.show_today({mode=...})| renders the live schedule. When `mode`
+is `"float"` (default) a bordered window anchors to the bottom-right corner,
+highlights the current and upcoming prayer, and auto-closes after a few
+seconds (or when pressing `q` / <Esc>). With `"notify"` the table is sent via
+|vim.notify|/nvim-notify.
+
+==============================================================================
+FORMATS AND EXTENSIBILITY                       *prayertime.nvim-formats*
+
+The default `standard` format pulls data from Aladhan and enriches it with a
+Duha window based on `duha_offset_minutes`. You can swap or extend formats:
+>
+  local prayer = require("prayertime")
+  prayer.register_format("custom", require("my_custom_format"))
+  prayer.use_format("custom", { city = "Medina" })
+<
+
+A format module must implement:
+  • fetch_times()           Populates cached times and metadata.
+  • get_status()            Returns a short statusline string.
+  • check_for_adhan()       Optional periodic hook (notifications etc.).
+Optional helpers such as `setup(opts)` are called when the format is selected.
+
+==============================================================================
+PUBLIC API                                            *prayertime.nvim-api*
+
+  require("prayertime").get_status()        → string displayed on statuslines.
+  ...get_prayer_times()                     → table of base timings.
+  ...get_derived_times()                    → table including Duha.
+  ...get_derived_ranges()                   → table with Duha start/finish.
+  ...get_cached_payload()                   → deep copy of the last API JSON.
+  ...get_last_updated()                     → os.time() stamp or nil.
+  ...get_config()                           → sanitized config table.
+  ...refresh()                              → refetch using the active format.
+
+These helpers make it easy to build custom dashboards, widgets, or JSON dumps
+without duplicating HTTP calls.
+
+==============================================================================
+GENERATING HELPTAGS                             *prayertime.nvim-helptags*
+
+After adding or updating this file run:
+>
+  :helptags /path/to/prayertime.nvim/doc
+<
+This generates the |help-tags| so `:h prayertime.nvim` works for all users.
+
+==============================================================================
+LICENSE & SUPPORT                                     *prayertime.nvim-help*
+
+Project home: https://github.com/muhfaris/prayertime.nvim
+Report issues and feature requests on the repository’s tracker.
+

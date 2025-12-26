@@ -1,0 +1,149 @@
+# prayertime.nvim
+prayertime.nvim is a standalone Neovim plugin that surfaces accurate daily prayer schedules right inside your editor. Display the live countdown in your statusline, pop open a floating panel for the full timetable, or fire notifications so you never miss a prayer.
+
+![Preview PrayerTime.Nvim](https://github.com/user-attachments/assets/c7471b94-5653-4275-94b6-462dc67489e2)
+
+## Requirements
+- Neovim 0.9+ (`vim.pack`, `vim.json`)
+- [`nvim-lua/plenary.nvim`](https://github.com/nvim-lua/plenary.nvim)
+- Optional: [`rcarriga/nvim-notify`](https://github.com/rcarriga/nvim-notify) for nicer alerts
+
+## Installation examples
+
+### lazy.nvim
+```lua
+{
+  "muhfaris/prayertime.nvim",
+  dependencies = { "nvim-lua/plenary.nvim" },
+  opts = { city = "Jakarta", country = "Indonesia", method = 2 },
+}
+```
+
+### packer.nvim
+```lua
+use({
+  "muhfaris/prayertime.nvim",
+  requires = { "nvim-lua/plenary.nvim" },
+  config = function()
+    require("prayertime").setup({ city = "Jakarta" })
+  end,
+})
+```
+
+### vim-plug
+```vim
+Plug "nvim-lua/plenary.nvim"
+Plug "muhfaris/prayertime.nvim"
+lua << EOF
+require("prayertime").setup({
+  city = "Jakarta",
+  country = "Indonesia",
+})
+EOF
+```
+
+## Usage
+```lua
+local prayer = require("prayertime")
+
+prayer.setup({
+  city = "Jakarta",
+  country = "Indonesia",
+  method = 2,
+})
+
+require("lualine").setup({
+  sections = {
+    lualine_y = { prayer.get_status, "progress" },
+  },
+})
+```
+
+The default `standard` format fetches timings from Aladhan, then calculates the Duha window (sunrise + offset until Dhuhr). You can register alternate formats and switch to them at runtime:
+
+```lua
+local prayer = require("prayertime")
+prayer.register_format("custom", require("my_custom_format"))
+prayer.use_format("custom", { city = "Medina" })
+```
+
+## Configuration
+
+`require("prayertime").setup()` accepts:
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `format` | `"standard"` | Which format module to load. |
+| `city` | `"Jakarta"` | Must be a non-empty string. |
+| `country` | `"Indonesia"` | Must be a non-empty string. |
+| `method` | `2` | Numeric method ID per Aladhan’s API. Non-numeric values are ignored with a warning. |
+| `duha_offset_minutes` | `15` | Minutes after sunrise before Duha begins (0-180). |
+
+Invalid values fall back to the defaults and emit a `vim.notify` warning so mistakes are obvious.
+
+### Method reference
+
+The `method` option follows [Aladhan’s calculation methods](https://aladhan.com/prayer-times-api). Set the numeric identifier shown below:
+
+| ID | Authority |
+| --- | --- |
+| 0 | Jafari / Shia Ithna-Ashari |
+| 1 | University of Islamic Sciences, Karachi |
+| 2 | Islamic Society of North America |
+| 3 | Muslim World League |
+| 4 | Umm Al-Qura University, Makkah |
+| 5 | Egyptian General Authority of Survey |
+| 7 | Institute of Geophysics, University of Tehran |
+| 8 | Gulf Region |
+| 9 | Kuwait |
+| 10 | Qatar |
+| 11 | Majlis Ugama Islam Singapura, Singapore |
+| 12 | Union Organization Islamique de France |
+| 13 | Diyanet İşleri Başkanlığı, Turkey |
+| 14 | Spiritual Administration of Muslims of Russia |
+| 15 | Moonsighting Committee Worldwide *(requires `shafaq` parameter via a custom format)* |
+| 16 | Dubai (experimental) |
+| 17 | Jabatan Kemajuan Islam Malaysia (JAKIM) |
+| 18 | Tunisia |
+| 19 | Algeria |
+| 20 | KEMENAG – Kementerian Agama Republik Indonesia |
+| 21 | Morocco |
+| 22 | Comunidade Islamica de Lisboa |
+| 23 | Ministry of Awqaf, Islamic Affairs and Holy Places, Jordan |
+| 99 | (Reserved for custom methods) |
+
+If you omit `method`, Aladhan picks the closest authority for the provided city/country/coordinates, but specifying it removes that ambiguity.
+
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `:PrayerReload` | Triggers an immediate fetch (`fetch_times`). Useful if the API key/city changed mid-session. |
+| `:PrayerFormat <name>` | Switches to another registered format (tab-completion lists available formats). |
+| `:PrayerTimes` | Shows the cached daily schedule from the active format. |
+| `:PrayerToday [float\|notify]` | Displays today’s schedule in a bottom-right floating window (default) or via notification. |
+
+These commands keep timers in sync—only one 60-second timer is ever active, even if the plugin is reloaded multiple times.
+
+## Quick display
+
+To preview today’s schedule from Lua, call:
+
+```lua
+require("prayertime").show_today({ mode = "float" }) -- or "notify"
+```
+
+The floating view anchors to the bottom-right corner and auto-closes after a few seconds (press `q` or `<Esc>` to dismiss immediately).
+
+## Introspection
+
+The standard format caches the raw API payload and exposes helpers so you can build custom UIs:
+
+```lua
+local prayer = require("prayertime")
+local payload = prayer.get_cached_payload() -- deep copy of the last JSON response
+local last_synced = prayer.get_last_updated()
+local derived_ranges = prayer.get_derived_ranges()
+```
+
+`payload` includes Aladhan’s original metadata (Hijri date, timezone, etc.), so you can inspect additional fields without firing your own HTTP requests.
