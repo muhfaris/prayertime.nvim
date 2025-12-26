@@ -5,6 +5,27 @@ prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accur
 
 ![Preview PrayerTime.Nvim](https://github.com/user-attachments/assets/c7471b94-5653-4275-94b6-462dc67489e2)
 
+<table>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/c7471b94-5653-4275-94b6-462dc67489e2" alt="Preview PrayerToday and Status Line" style="width: 200px;"/>
+      <br />
+      <em>Preview PrayerToday and Status Line</em>
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/33f80afe-512a-45d8-96ae-310391246341" alt="Preview PrayerToday Notification" style="width: 200px;"/>
+      <br />
+      <em>Preview PrayerToday Notification</em>
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/ce65bddd-fd3f-4701-8c7c-7b8db5c076c0" alt="Prayer Reminder" style="width: 200px;"/>
+      <br />
+      <em>Prayer Reminder</em>
+    </td>
+  </tr>
+</table>
+
+
 ## ✨ Features
 - *Live Statusline:* Real-time countdown to the next prayer.
 - *Smart Caching:* Works offline by persisting the last successful fetch to disk.
