@@ -74,35 +74,13 @@ require("lualine").setup({
   },
 })
 ```
-
-### ⌨️ Key mappings
-Trigger your favorite commands quickly from normal mode:
-
-```lua
-vim.keymap.set("n", "<leader>pt", function()
-  require("prayertime").show_today({ mode = "float" })
-end, { desc = "PrayerTime: show today" })
-
-vim.keymap.set("n", "<leader>pr", function()
-  require("prayertime").refresh()
-end, { desc = "PrayerTime: refresh schedule" })
-```
-
-The default `standard` format fetches timings from Aladhan, then calculates the Duha window (sunrise + offset until Dhuhr). You can register alternate formats and switch to them at runtime:
-
-```lua
-local prayer = require("prayertime")
-prayer.register_format("custom", require("my_custom_format"))
-prayer.use_format("custom", { city = "Medina" })
-```
-
 ## ⚙️ Configuration
 
 `require("prayertime").setup()` accepts:
 
 | Option | Default | Notes |
 | --- | --- | --- |
-| `format` | `"standard"` | Which format module to load. |
+| `format` | `"standard"` | Which format module to load. The default `standard` format fetches timings from Aladhan, then calculates the Duha window (sunrise + offset until Dhuhr) |
 | `city` | `"Jakarta"` | Must be a non-empty string. |
 | `country` | `"Indonesia"` | Must be a non-empty string. |
 | `method` | `2` | Numeric method ID per Aladhan’s API. Non-numeric values are ignored with a warning. |
@@ -150,9 +128,33 @@ If you omit `method`, Aladhan picks the closest authority for the provided city/
 | `:PrayerReload` | Triggers an immediate fetch (`fetch_times`). Useful if the API key/city changed mid-session. |
 | `:PrayerFormat <name>` | Switches to another registered format (tab-completion lists available formats). |
 | `:PrayerTimes` | Shows the cached daily schedule from the active format. |
+| `:PrayerTest [prayer time]` | Fires the `PrayertimeAdhan` autocmd immediately (default payload `Test HH:MM`). Handy for verifying bells/scripts. |
 | `:PrayerToday [float\|notify]` | Displays today’s schedule in a bottom-right floating window (default) or via notification. |
 
 These commands keep timers in sync—only one 60-second timer is ever active, even if the plugin is reloaded multiple times.
+
+They are regular user commands, so you can call them from Lua via `vim.cmd("PrayerToday notify")`, from mappings (`vim.keymap.set("n", "<leader>pt", "<cmd>PrayerToday<CR>")`), or even from your own plugins.
+
+### ⌨️ Key mappings
+Trigger your favorite commands quickly from normal mode:
+
+```lua
+vim.keymap.set("n", "<leader>pt", function()
+  require("prayertime").show_today({ mode = "float" })
+end, { desc = "PrayerTime: show today" })
+
+vim.keymap.set("n", "<leader>pr", function()
+  require("prayertime").refresh()
+end, { desc = "PrayerTime: refresh schedule" })
+```
+
+Prefer to route through the user commands themselves? Map them directly:
+
+```lua
+vim.keymap.set("n", "<leader>pt", "<cmd>PrayerToday notify<CR>", { desc = "PrayerTime: notify table" })
+vim.keymap.set("n", "<leader>pr", "<cmd>PrayerReload<CR>", { desc = "PrayerTime: refetch" })
+vim.keymap.set("n", "<leader>pa", "<cmd>PrayerTest<CR>", { desc = "PrayerTime: test adhan" })
+```
 
 ## 🔔 Events & Automation
 
@@ -170,6 +172,29 @@ vim.api.nvim_create_autocmd("User", {
 ```
 
 Use this hook for chimes, integration scripts, or analytics.
+
+---
+
+Need to test your handler quickly? Run `:PrayerTest` (optionally pass a name and HH:MM time) and your configured autocmd will execute immediately without waiting for the real schedule.
+
+Example: play a custom WAV adhan with `aplay`, plus a terminal bell and notification:
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "PrayertimeAdhan",
+  callback = function(ev)
+    vim.api.nvim_out_write("\7") -- terminal bell
+    vim.fn.jobstart({ "aplay", "/home/user/Music/adhan.wav" }, { detach = true })
+    vim.notify(
+      ("Adhan for %s at %s"):format(ev.data.prayer, ev.data.time),
+      vim.log.levels.INFO,
+      { title = "PrayerTime" }
+    )
+  end,
+})
+```
+
+> `aplay` ships with ALSA (`alsa-utils` package on most distros). Replace it with `paplay`, `mpv`, or any other player you prefer—just make sure the binary is in `$PATH` (check via `:echo vim.fn.executable("aplay")`). Update the WAV path to your own audio file.
 
 Available fields inside the autocmd callback:
 
