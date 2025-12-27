@@ -443,6 +443,31 @@ vim.api.nvim_create_user_command("PrayerTimes", function()
 	notify_table("Prayer Times", M.get_prayer_times())
 end, { desc = "Show cached prayer times" })
 
+vim.api.nvim_create_user_command("PrayerTest", function(params)
+	local raw = vim.trim(params.args or "")
+	local pieces = {}
+	if raw ~= "" then
+		pieces = vim.split(raw, "\\s+", { trimempty = true })
+	end
+	local payload = {
+		prayer = (pieces[1] and pieces[1] ~= "" and pieces[1]) or "Test",
+		time = (pieces[2] and pieces[2] ~= "" and pieces[2]) or os.date("%H:%M"),
+	}
+	local ok, err = pcall(vim.api.nvim_exec_autocmds, "User", {
+		pattern = "PrayertimeAdhan",
+		modeline = false,
+		data = payload,
+	})
+	if not ok then
+		notify(("prayertime: failed to fire PrayertimeAdhan: %s"):format(err), vim.log.levels.ERROR)
+		return
+	end
+	notify(("prayertime: fired PrayertimeAdhan for %s at %s"):format(payload.prayer, payload.time), vim.log.levels.INFO)
+end, {
+	desc = "Trigger PrayertimeAdhan manually for testing",
+	nargs = "*",
+})
+
 function M.show_today(opts)
 	opts = opts or {}
 	local lines = build_today_lines()

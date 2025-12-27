@@ -124,6 +124,8 @@ COMMANDS                                             *prayertime.nvim-commands*
   :PrayerReload              Fetch the latest schedule immediately.
   :PrayerFormat {name}       Switch to another registered format.
   :PrayerTimes               Print cached base timings to a notification.
+  :PrayerTest [name time]    Fire `User PrayertimeAdhan` immediately (defaults
+                             to `Test HH:MM`) for verifying custom handlers.
   :PrayerToday [float|notify]
                              Show today’s schedule as a float (default) or
                              notification.
@@ -155,6 +157,9 @@ and `ev.data.time` (HH:MM). Example:
   })
 <
 Use this hook to trigger custom audio, lighting, or integration scripts.
+
+For quick testing without waiting for the real timer, run `:PrayerTest`. You can
+optionally pass a prayer name and HH:MM string: `:PrayerTest Fajr 05:00`.
 
 Callback fields:
 
