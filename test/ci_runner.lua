@@ -34,14 +34,19 @@ local function write_junit(path, failed)
 	f:close()
 end
 
--- Run directory
-local success = pcall(function()
-	harness.test_directory("test", { minimal_init = "test/minimal_init.lua" })
-end)
-
--- If harness throws, it means failure
-write_junit("test-results/junit.xml", not success)
-
-if not success then
-	vim.cmd("cq") -- fail the job
+-- Monkeypatch vim.cmd to capture plenary's exit
+local original_cmd = vim.cmd
+vim.cmd = function(cmd)
+	if cmd == "0cq" then
+		write_junit("test-results/junit.xml", false)
+		original_cmd("0cq")
+	elseif cmd == "1cq" then
+		write_junit("test-results/junit.xml", true)
+		original_cmd("1cq")
+	else
+		return original_cmd(cmd)
+	end
 end
+
+-- Run directory
+harness.test_directory("test", { minimal_init = "test/minimal_init.lua" })
