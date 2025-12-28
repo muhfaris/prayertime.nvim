@@ -77,7 +77,7 @@ jobs:
           set -euo pipefail
 
           # Build a markdown table based on which artifacts exist + whether junit contains failures
-          echo "table<<'EOF'" >> $GITHUB_OUTPUT
+          echo "table<<EOF" >> $GITHUB_OUTPUT
           echo "| Neovim | Result | Artifact |" >> $GITHUB_OUTPUT
           echo "|---|---:|---|" >> $GITHUB_OUTPUT
 
