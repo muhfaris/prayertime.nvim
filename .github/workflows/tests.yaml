@@ -1,0 +1,133 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        nvim: [v0.9.5, v0.10.4, v0.11.3, nightly]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Neovim (${{ matrix.nvim }})
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.nvim }}
+
+      - name: Prepare runtime (plenary + plugin)
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/site/pack/ci/start
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim .ci/site/pack/ci/start/plenary.nvim
+          ln -s "$PWD" .ci/site/pack/ci/start/prayertime.nvim
+
+      - name: Run tests (and write junit)
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          nvim --headless -u NONE \
+            --cmd "set rtp^=${GITHUB_WORKSPACE}/.ci/site/pack/ci/start/prayertime.nvim" \
+            --cmd "set rtp^=${GITHUB_WORKSPACE}/.ci/site/pack/ci/start/plenary.nvim" \
+            +"lua dofile('test/ci_runner.lua')" \
+            +qall
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.nvim }}
+          path: test-results
+
+      - name: Test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: "Prayertime tests (${{ matrix.nvim }})"
+          path: "test-results/junit.xml"
+          reporter: java-junit
+          fail-on-error: "false"
+
+  comment:
+    if: always() && github.event_name == 'pull_request'
+    needs: [test]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build summary
+        id: summary
+        run: |
+          set -euo pipefail
+
+          # Build a markdown table based on which artifacts exist + whether junit contains failures
+          echo "table<<EOF" >> $GITHUB_OUTPUT
+          echo "| Neovim | Result | Artifact |" >> $GITHUB_OUTPUT
+          echo "|---|---:|---|" >> $GITHUB_OUTPUT
+
+          for v in v0.9.5 v0.10.4 v0.11.3 nightly; do
+            dir="artifacts/test-results-$v"
+            if [ ! -d "$dir" ]; then
+              echo "| $v | ❓ missing | test-results-$v |" >> $GITHUB_OUTPUT
+              continue
+            fi
+
+            junit="$dir/junit.xml"
+            if [ ! -f "$junit" ]; then
+              echo "| $v | ❓ no junit | test-results-$v |" >> $GITHUB_OUTPUT
+              continue
+            fi
+
+            # super simple parse: look for failures="0"
+            if grep -q 'failures="0"' "$junit"; then
+              echo "| $v | ✅ pass | test-results-$v |" >> $GITHUB_OUTPUT
+            else
+              echo "| $v | ❌ fail | test-results-$v |" >> $GITHUB_OUTPUT
+            fi
+          done
+
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Comment PR (single sticky comment)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = "<!-- prayertime-ci-summary -->";
+            const body = [
+              marker,
+              "### prayertime.nvim CI summary",
+              "",
+              `${{ steps.summary.outputs.table }}`,
+              "",
+              "Artifacts are uploaded per version (see Actions run artifacts)."
+            ].join("\n");
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.data.find(c => c.user.type === "Bot" && c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
