@@ -1,0 +1,44 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        nvim: [v0.9.5, v0.10.4, v0.11.3, nightly]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Neovim (${{ matrix.nvim }})
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.nvim }}
+
+      - name: Prepare runtime (plenary + plugin)
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/site/pack/ci/start
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim .ci/site/pack/ci/start/plenary.nvim
+          ln -s "$PWD" .ci/site/pack/ci/start/prayertime.nvim
+
+      - name: Run tests
+        env:
+          XDG_DATA_HOME: ${{ github.workspace }}/.ci
+          XDG_CONFIG_HOME: ${{ github.workspace }}/.ci
+          XDG_STATE_HOME: ${{ github.workspace }}/.ci
+          XDG_CACHE_HOME: ${{ github.workspace }}/.ci
+        run: |
+          set -euo pipefail
+          nvim --headless \
+            -u test/minimal_init.lua \
+            +"lua vim.opt.rtp:prepend(vim.fn.getenv('XDG_DATA_HOME')..'/site/pack/ci/start/plenary.nvim')" \
+            +"lua vim.opt.rtp:prepend(vim.fn.getenv('XDG_DATA_HOME')..'/site/pack/ci/start/prayertime.nvim')" \
+            +"PlenaryBustedDirectory test { minimal_init = 'test/minimal_init.lua' }" \
+            +qall
