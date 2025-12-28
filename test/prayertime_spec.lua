@@ -33,8 +33,12 @@ local function stub_aladhan_network()
 	})
 
 	-- Stub plenary.curl if you use it
+
 	package.loaded["plenary.curl"] = {
-		get = function(_)
+		get = function(url, opts)
+			if opts and opts.callback then
+				opts.callback({ status = 200, body = payload })
+			end
 			return { status = 200, body = payload }
 		end,
 	}
@@ -117,6 +121,9 @@ describe("prayertime.nvim public contract", function()
 		prayer.setup({ city = "Jakarta", country = "Indonesia", method = "lol" })
 
 		-- README promises invalid values fall back + warn via vim.notify :contentReference[oaicite:8]{index=8}
+		vim.wait(100, function()
+			return #notifies >= 1
+		end)
 		assert.is_true(#notifies >= 1)
 
 		vim.notify = old_notify

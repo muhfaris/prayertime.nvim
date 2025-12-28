@@ -447,7 +447,7 @@ vim.api.nvim_create_user_command("PrayerTest", function(params)
 	local raw = vim.trim(params.args or "")
 	local pieces = {}
 	if raw ~= "" then
-		pieces = vim.split(raw, "\\s+", { trimempty = true })
+		pieces = vim.split(raw, " ", { trimempty = true })
 	end
 	local payload = {
 		prayer = (pieces[1] and pieces[1] ~= "" and pieces[1]) or "Test",
