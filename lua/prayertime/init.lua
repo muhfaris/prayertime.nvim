@@ -462,7 +462,11 @@ vim.api.nvim_create_user_command("PrayerTest", function(params)
 		notify(("prayertime: failed to fire PrayertimeAdhan: %s"):format(err), vim.log.levels.ERROR)
 		return
 	end
-	notify(("prayertime: fired PrayertimeAdhan for %s at %s"):format(payload.prayer, payload.time), vim.log.levels.INFO)
+	notify(
+		("🕌 %s prayer is starting now (%s)"):format(payload.prayer, payload.prayer),
+		vim.log.levels.INFO,
+		{ title = "Prayer Reminder" }
+	)
 end, {
 	desc = "Trigger PrayertimeAdhan manually for testing",
 	nargs = "*",
