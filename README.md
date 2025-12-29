@@ -204,13 +204,9 @@ Example: play a custom WAV adhan with `aplay`, plus a terminal bell and notifica
 vim.api.nvim_create_autocmd("User", {
   pattern = "PrayertimeAdhan",
   callback = function(ev)
-    vim.api.nvim_out_write("\7") -- terminal bell
-    vim.fn.jobstart({ "aplay", "/home/user/Music/adhan.wav" }, { detach = true })
-    vim.notify(
-      ("Adhan for %s at %s"):format(ev.data.prayer, ev.data.time),
-      vim.log.levels.INFO,
-      { title = "PrayerTime" }
-    )
+    if ev.data.prayer ~= "Sunrise" then
+        vim.fn.jobstart({ "aplay", "/home/user/Music/adhan.wav" }, { detach = true })
+    end
   end,
 })
 ```
