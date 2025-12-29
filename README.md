@@ -205,6 +205,7 @@ vim.api.nvim_create_autocmd("User", {
   pattern = "PrayertimeAdhan",
   callback = function(ev)
     if ev.data.prayer ~= "Sunrise" then
+        vim.api.nvim_out_write("\7") -- terminal bell
         vim.fn.jobstart({ "aplay", "/home/user/Music/adhan.wav" }, { detach = true })
     end
   end,
