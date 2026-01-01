@@ -133,14 +133,15 @@ describe("prayertime.nvim public contract", function()
 		local prayer = require("prayertime")
 		prayer.setup({ city = "Jakarta", country = "Indonesia", method = 2 })
 
-		local got = {}
-		local id = vim.api.nvim_create_autocmd("User", {
-			pattern = "PrayertimeAdhan",
-			callback = function(ev)
-				got.prayer = ev.data and ev.data.prayer
-				got.time = ev.data and ev.data.time
-			end,
-		})
+			local got = {}
+			local id = vim.api.nvim_create_autocmd("User", {
+				pattern = "PrayertimeAdhan",
+				callback = function(ev)
+					got.prayer = ev.data and ev.data.prayer
+					got.time = ev.data and ev.data.time
+					got.prayers = ev.data and ev.data.prayers
+				end,
+			})
 
 		-- README: `:PrayerTest [prayer time]` fires PrayertimeAdhan, default payload `Test HH:MM` :contentReference[oaicite:9]{index=9}
 		vim.cmd("PrayerTest Fajr 04:36")
@@ -150,11 +151,13 @@ describe("prayertime.nvim public contract", function()
 			return got.prayer ~= nil
 		end)
 
-		eq("Fajr", got.prayer)
-		eq("04:36", got.time)
+			eq("Fajr", got.prayer)
+			eq("04:36", got.time)
+			assert.is_table(got.prayers)
+			assert.is_true(got.prayers.Fajr)
 
-		vim.api.nvim_del_autocmd(id)
-	end)
+			vim.api.nvim_del_autocmd(id)
+		end)
 
 	it("PrayerToday float opens a window (non-notify path)", function()
 		local prayer = require("prayertime")

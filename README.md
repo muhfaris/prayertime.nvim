@@ -106,6 +106,7 @@ require("lualine").setup({
 | `country` | `"Indonesia"` | Must be a non-empty string. |
 | `method` | `2` | Numeric method ID per Aladhan’s API. Non-numeric values are ignored with a warning. |
 | `duha_offset_minutes` | `15` | Minutes after sunrise before Duha begins (0-180). |
+| `prayers` | `{ Fajr = true, Dhuhr = true, Asr = true, Maghrib = true, Isha = true }` | Table of booleans that decide which prayers should fire the `PrayertimeAdhan` event/audio. Override individual keys, e.g. `{ Fajr = true, Isha = false }`. |
 
 Invalid values fall back to the defaults and emit a `vim.notify` warning so mistakes are obvious.
 
@@ -187,12 +188,20 @@ and `ev.data.time`, making it easy to wire extra alerts:
 vim.api.nvim_create_autocmd("User", {
   pattern = "PrayertimeAdhan",
   callback = function(ev)
-    vim.notify(("Time for %s (%s)"):format(ev.data.prayer, ev.data.time))
+    if ev.data.prayers and ev.data.prayers[ev.data.prayer] then
+      vim.notify(("Time for %s (%s)"):format(ev.data.prayer, ev.data.time))
+    end
   end,
 })
 ```
 
 Use this hook for chimes, integration scripts, or analytics.
+
+Only one Neovim session emits the event/audio. A lightweight lock file under
+`stdpath("state")` elects a "leader" instance, preventing five running Neovims
+from blasting five adhans simultaneously. If the lock cannot be acquired (for
+example, due to a read-only filesystem) the plugin logs a warning and still
+fires the event so you never miss a reminder.
 
 ---
 
@@ -204,7 +213,7 @@ Example: play a custom WAV adhan with `aplay`, plus a terminal bell and notifica
 vim.api.nvim_create_autocmd("User", {
   pattern = "PrayertimeAdhan",
   callback = function(ev)
-    if ev.data.prayer ~= "Sunrise" then
+    if ev.data.prayers and ev.data.prayers[ev.data.prayer] then
         vim.api.nvim_out_write("\7") -- terminal bell
         vim.fn.jobstart({ "aplay", "/home/user/Music/adhan.wav" }, { detach = true })
     end
@@ -220,6 +229,28 @@ Available fields inside the autocmd callback:
 | --- | --- | --- |
 | `ev.data.prayer` | `string` | Name of the prayer that just started (`"Fajr"`, `"Dhuhr"`, etc.). |
 | `ev.data.time` | `string` | Scheduled HH:MM timestamp for that prayer. |
+| `ev.data.prayers` | `table<string, boolean>` | Copy of the configured `prayers` table so handlers can quickly check `if ev.data.prayers[ev.data.prayer] then ... end`. |
+
+## 🔧 Customizing prayers
+
+Only want a handful of prayers to trigger adhans/automation? Override the `prayers`
+table during setup:
+
+```lua
+require("prayertime").setup({
+  city = "Jakarta",
+  prayers = {
+    Fajr = true,
+    Dhuhr = true,
+    Asr = false, -- skip Asr audio
+    Maghrib = true,
+    Isha = false, -- silent Isha
+  },
+})
+```
+
+Any omitted key defaults to `true` for the five daily prayers. The active table is
+passed to handlers via `ev.data.prayers`, so your autocmds can make the same checks.
 
 ## 🪟 Quick display
 

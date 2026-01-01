@@ -6,6 +6,13 @@ local defaults = {
 	country = "Indonesia",
 	method = 2,
 	duha_offset_minutes = 15,
+	prayers = {
+		Fajr = true,
+		Dhuhr = true,
+		Asr = true,
+		Maghrib = true,
+		Isha = true,
+	},
 }
 
 M.defaults = vim.deepcopy(defaults)
@@ -42,12 +49,48 @@ local cache_file = cache_dir .. "/schedule.json"
 local MAX_FETCH_ATTEMPTS = 3
 local RETRY_DELAY_MS = 1000
 local load_cache
+local lock = require("prayertime.lock")
+local state_dir = vim.fn.stdpath("state")
+local lock_path = state_dir .. "/prayertime.lock"
+local lock_ttl = 6 -- seconds
+local lock_warning_emitted = false
+
+pcall(vim.fn.mkdir, state_dir, "p")
+-- on lock init
+lock.start_heartbeat({ lock_path = lock_path, ttl = lock_ttl })
 
 local function clone_table(value)
 	if value == nil then
 		return nil
 	end
 	return vim.tbl_deep_extend("force", {}, value)
+end
+
+local function merge_prayers(base, overrides)
+	if type(base) ~= "table" then
+		base = {}
+	end
+	if type(overrides) ~= "table" then
+		return base
+	end
+	for name, enabled in pairs(overrides) do
+		if type(name) == "string" then
+			base[name] = not not enabled
+		end
+	end
+	return base
+end
+
+local function prayers_signature(prayers)
+	if type(prayers) ~= "table" then
+		return ""
+	end
+	local pieces = {}
+	for name, enabled in pairs(prayers) do
+		table.insert(pieces, ("%s=%s"):format(name, enabled and "1" or "0"))
+	end
+	table.sort(pieces)
+	return table.concat(pieces, ",")
 end
 
 local function config_signature(cfg)
@@ -59,6 +102,7 @@ local function config_signature(cfg)
 		cfg.country or defaults.country,
 		tostring(cfg.method or defaults.method),
 		tostring(cfg.duha_offset_minutes or defaults.duha_offset_minutes),
+		prayers_signature(cfg.prayers or defaults.prayers),
 	}, "::")
 end
 
@@ -98,11 +142,27 @@ local function warn(msg)
 end
 
 local function emit_adhan_event(name, time)
+	local ok, leader = pcall(lock.try_acquire, { lock_path = lock_path, ttl = lock_ttl })
+	if not ok then
+		if not lock_warning_emitted then
+			warn("prayertime: shared lock unavailable; duplicate adhans may occur")
+			lock_warning_emitted = true
+		end
+		leader = true
+	end
+
+	-- Only leader emits the user event (so only one session triggers user's autocmd)
+	if not leader then
+		return
+	end
+
+	local prayers = config.prayers or defaults.prayers or {}
+
 	vim.schedule(function()
 		pcall(vim.api.nvim_exec_autocmds, "User", {
 			pattern = "PrayertimeAdhan",
 			modeline = false,
-			data = { prayer = name, time = time },
+			data = { prayer = name, time = time, prayers = prayers or {} },
 		})
 	end)
 end
@@ -155,6 +215,8 @@ local function apply_config(opts)
 		warn("prayertime: duha_offset_minutes must be between 0 and 180")
 	end
 
+	new.prayers = merge_prayers(clone_table(defaults.prayers), opts.prayers)
+
 	config = new
 	local new_signature = config_signature(config)
 	if new_signature ~= previous_signature then
@@ -178,10 +240,10 @@ local function compute_derived_times()
 	if sunrise_minutes and dhuhr_minutes and dhuhr_minutes > sunrise_minutes then
 		local offset = tonumber(config.duha_offset_minutes) or defaults.duha_offset_minutes
 		offset = math.max(0, offset)
-			local start_minutes = sunrise_minutes + offset
-			if start_minutes < dhuhr_minutes then
-				local duha_start = util.minutes_to_time(start_minutes)
-				local duha_finish = util.minutes_to_time(dhuhr_minutes)
+		local start_minutes = sunrise_minutes + offset
+		if start_minutes < dhuhr_minutes then
+			local duha_start = util.minutes_to_time(start_minutes)
+			local duha_finish = util.minutes_to_time(dhuhr_minutes)
 			derived.Duha = duha_start
 			derived_ranges.Duha = {
 				start = duha_start,
@@ -290,8 +352,8 @@ function M.get_status()
 	local now_minutes = util.parse_time_str(os.date("%H:%M"))
 	local duha_range = derived_ranges.Duha
 	if duha_range and duha_range.start and now_minutes then
-			local duha_start = util.parse_time_str(duha_range.start)
-			local duha_end = util.parse_time_str(duha_range.finish or prayer_times.Dhuhr)
+		local duha_start = util.parse_time_str(duha_range.start)
+		local duha_end = util.parse_time_str(duha_range.finish or prayer_times.Dhuhr)
 		if duha_start and now_minutes >= duha_start then
 			if not duha_end or now_minutes < duha_end then
 				if duha_range.finish then
@@ -308,7 +370,7 @@ function M.get_status()
 	for _, name in ipairs(prayer_order) do
 		local time = derived_times[name] or prayer_times[name]
 		if time then
-				local minutes = util.parse_time_str(time)
+			local minutes = util.parse_time_str(time)
 			if minutes and now_minutes and minutes >= now_minutes then
 				next_name = name
 				next_time = time
