@@ -124,6 +124,18 @@ local function call_active(method, ...)
 	return fn(...)
 end
 
+local function get_active_prayers()
+	local ok, cfg = pcall(call_active, "get_config")
+	if ok and type(cfg) == "table" and type(cfg.prayers) == "table" then
+		return vim.deepcopy(cfg.prayers) or {}
+	end
+	local defaults = active_format and active_format.defaults
+	if type(defaults) == "table" and type(defaults.prayers) == "table" then
+		return vim.deepcopy(defaults.prayers) or {}
+	end
+	return {}
+end
+
 local function close_today_display()
 	if today_display.win and vim.api.nvim_win_is_valid(today_display.win) then
 		vim.api.nvim_win_close(today_display.win, true)
@@ -452,7 +464,12 @@ vim.api.nvim_create_user_command("PrayerTest", function(params)
 	local payload = {
 		prayer = (pieces[1] and pieces[1] ~= "" and pieces[1]) or "Test",
 		time = (pieces[2] and pieces[2] ~= "" and pieces[2]) or os.date("%H:%M"),
+		prayers = get_active_prayers(),
 	}
+
+	if type(payload.prayers) ~= "table" then
+		payload.prayers = { Test = true }
+	end
 	local ok, err = pcall(vim.api.nvim_exec_autocmds, "User", {
 		pattern = "PrayertimeAdhan",
 		modeline = false,

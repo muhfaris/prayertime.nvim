@@ -89,11 +89,30 @@ to the defaults and trigger |vim.notify()| warnings so mistakes are obvious:
   country               string   "Indonesia" non-empty string.
   method                number   2 (Aladhan API method id, see below).
   duha_offset_minutes   number   15 (0-180 minutes after sunrise for Duha).
+  prayers               table    { Fajr=true, Dhuhr=true, Asr=true, Maghrib=true,
+                                  Isha=true } boolean map that decides which
+                                  prayers trigger |PrayertimeAdhan|.
 
 Method identifiers follow https://aladhan.com/prayer-times-api (e.g. 2 for
 ISNA, 20 for KEMENAG). If omitted, Aladhan infers the closest authority based
 on the provided city/country/coordinates, but explicitly setting the method
 keeps results deterministic.
+
+Customize the `prayers` map to silence specific windows:
+>
+  require("prayertime").setup({
+    city = "Jakarta",
+    prayers = {
+      Fajr = true,
+      Dhuhr = true,
+      Asr = false,    -- skip Asr audio
+      Maghrib = true,
+      Isha = false,   -- no Isha reminder
+    },
+  })
+<
+Any key you omit falls back to `true`. The final map is available in
+|PrayertimeAdhan| handlers via `ev.data.prayers`.
 
 ==============================================================================
 CACHE & RELIABILITY                                   *prayertime.nvim-cache*
@@ -152,11 +171,18 @@ and `ev.data.time` (HH:MM). Example:
   vim.api.nvim_create_autocmd("User", {
     pattern = "PrayertimeAdhan",
     callback = function(ev)
-      vim.notify(("Time for %s (%s)"):format(ev.data.prayer, ev.data.time))
+      if ev.data.prayers and ev.data.prayers[ev.data.prayer] then
+        vim.notify(("Time for %s (%s)"):format(ev.data.prayer, ev.data.time))
+      end
     end,
   })
 <
 Use this hook to trigger custom audio, lighting, or integration scripts.
+Internally a lightweight lock file under |stdpath("state")| elects a single
+leader Neovim instance, so if you have multiple editors open only one of them
+plays the adhan. When the lock cannot be created (e.g. read-only filesystem)
+the plugin logs a warning and still fires your autocmd so reminders are never
+missed.
 
 For quick testing without waiting for the real timer, run `:PrayerTest`. You can
 optionally pass a prayer name and HH:MM string: `:PrayerTest Fajr 05:00`.
@@ -165,6 +191,8 @@ Callback fields:
 
   • `ev.data.prayer` — string with the prayer name (Fajr, Dhuhr, etc.).
   • `ev.data.time`   — string HH:MM timestamp for that prayer.
+  • `ev.data.prayers` — table<string,boolean> copy of your |prayers| option for
+                        quick checks such as `if ev.data.prayers.Fajr then …`.
 
 ==============================================================================
 FORMATS AND EXTENSIBILITY                       *prayertime.nvim-formats*
