@@ -240,6 +240,8 @@ function M.fetch_times()
 	end
 	local url = request_url()
 
+	local attempt_fetch
+
 	local function fetch_done(attempt, ok, data)
 		if ok and data then
 			last_payload = data
@@ -261,7 +263,7 @@ function M.fetch_times()
 		end, RETRY_DELAY_MS)
 	end
 
-	local function attempt_fetch(attempt)
+	attempt_fetch = function(attempt)
 		curl.get(url, {
 			timeout = 10000,
 			on_error = function()
