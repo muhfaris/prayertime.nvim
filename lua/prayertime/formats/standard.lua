@@ -239,42 +239,49 @@ function M.fetch_times()
 		return
 	end
 	local url = request_url()
+
+	local function fetch_done(attempt, ok, data)
+		if ok and data then
+			last_payload = data
+			last_updated = os.time()
+			prayer_times = clone_table(data.data.timings or {}) or {}
+			compute_derived_times()
+			save_cache()
+			return
+		end
+		if attempt >= MAX_FETCH_ATTEMPTS then
+			notify(
+				("prayertime: failed to fetch schedule after %d attempts"):format(MAX_FETCH_ATTEMPTS),
+				vim.log.levels.ERROR
+			)
+			return
+		end
+		vim.defer_fn(function()
+			attempt_fetch(attempt + 1)
+		end, RETRY_DELAY_MS)
+	end
+
 	local function attempt_fetch(attempt)
 		curl.get(url, {
+			timeout = 10000,
+			on_error = function()
+				fetch_done(attempt, false, nil)
+			end,
 			callback = vim.schedule_wrap(function(res)
 				local status = res and tonumber(res.status) or nil
 				local body = res and res.body or nil
 				if not status or status < 200 or status >= 400 or not body or body == "" then
-					if attempt >= MAX_FETCH_ATTEMPTS then
-						notify(
-							("prayertime: failed to fetch schedule after %d attempts"):format(MAX_FETCH_ATTEMPTS),
-							vim.log.levels.ERROR
-						)
-						return
-					end
-					vim.defer_fn(function()
-						attempt_fetch(attempt + 1)
-					end, RETRY_DELAY_MS)
+					fetch_done(attempt, false, nil)
 					return
 				end
 
 				local ok, data = pcall(vim.json.decode, body)
 				if not ok or not data or not data.data or not data.data.timings then
-					if attempt >= MAX_FETCH_ATTEMPTS then
-						notify("prayertime: failed to decode prayer times", vim.log.levels.ERROR)
-						return
-					end
-					vim.defer_fn(function()
-						attempt_fetch(attempt + 1)
-					end, RETRY_DELAY_MS)
+					fetch_done(attempt, false, nil)
 					return
 				end
 
-				last_payload = data
-				last_updated = os.time()
-				prayer_times = clone_table(data.data.timings or {}) or {}
-				compute_derived_times()
-				save_cache()
+				fetch_done(attempt, true, data)
 			end),
 		})
 	end
