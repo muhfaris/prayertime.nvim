@@ -1,3 +1,4 @@
+local uv = vim.uv or vim.loop
 local util = require("prayertime.util")
 local M = {}
 
@@ -36,11 +37,13 @@ do
 	end
 end
 
-local curl_client = nil
+
 local cache_dir = vim.fn.stdpath("cache") .. "/prayertime"
 local cache_file = cache_dir .. "/schedule.json"
 local MAX_FETCH_ATTEMPTS = 3
 local RETRY_DELAY_MS = 1000
+local active_fetch_job = nil
+local active_retry_timer = nil
 local load_cache
 
 local function clone_table(value)
@@ -107,18 +110,7 @@ local function emit_adhan_event(name, time)
 	end)
 end
 
-local function get_curl()
-	if curl_client then
-		return curl_client
-	end
-	local ok, mod = pcall(require, "plenary.curl")
-	if not ok then
-		warn("prayertime: plenary.curl not available; install nvim-lua/plenary.nvim")
-		return nil
-	end
-	curl_client = mod
-	return curl_client
-end
+
 
 local function apply_config(opts)
 	opts = opts or {}
@@ -217,27 +209,61 @@ end
 
 load_cache()
 
+local function url_encode(str)
+	if not str then
+		return ""
+	end
+	str = tostring(str)
+	str = str:gsub("([^%w%.%-%_])", function(c)
+		return string.format("%%%02X", string.byte(c))
+	end)
+	return str
+end
+
 local function request_url()
 	local date = os.date("%d-%m-%Y")
 	return string.format(
 		"http://api.aladhan.com/v1/timingsByCity/%s?city=%s&country=%s&method=%s",
-		vim.fn.escape(date, " "),
-		vim.fn.escape(config.city or "Jakarta", " "),
-		vim.fn.escape(config.country or "Indonesia", " "),
-		config.method or 2
+		url_encode(date),
+		url_encode(config.city or "Jakarta"),
+		url_encode(config.country or "Indonesia"),
+		url_encode(config.method or 2)
 	)
 end
 
 function M.setup(opts)
 	apply_config(opts)
-	M.fetch_times()
 end
 
-function M.fetch_times()
-	local curl = get_curl()
-	if not curl then
+function M.fetch_times(force)
+	if vim.fn.executable("curl") ~= 1 then
+		warn("prayertime: curl command not found in PATH")
 		return
 	end
+
+	-- Cancel any active job
+	if active_fetch_job then
+		if type(active_fetch_job.is_closing) == "function" and not active_fetch_job:is_closing() then
+			pcall(active_fetch_job.kill, active_fetch_job, 15)
+		end
+		active_fetch_job = nil
+	end
+
+	-- Stop any active retry timer
+	if active_retry_timer then
+		pcall(vim.fn.timer_stop, active_retry_timer)
+		active_retry_timer = nil
+	end
+
+	-- Smart caching validation: check if cache is valid for today (unless forced)
+	if not force and last_updated and not vim.tbl_isempty(prayer_times) then
+		local cached_date = os.date("%d-%m-%Y", last_updated)
+		local today_date = os.date("%d-%m-%Y")
+		if cached_date == today_date then
+			return
+		end
+	end
+
 	local url = request_url()
 
 	local attempt_fetch
@@ -258,34 +284,81 @@ function M.fetch_times()
 			)
 			return
 		end
-		vim.defer_fn(function()
+		active_retry_timer = vim.fn.timer_start(RETRY_DELAY_MS, function()
+			active_retry_timer = nil
 			attempt_fetch(attempt + 1)
-		end, RETRY_DELAY_MS)
+		end)
 	end
 
 	attempt_fetch = function(attempt)
-		curl.get(url, {
-			timeout = 10000,
-			on_error = function()
+		local stdout = uv.new_pipe(false)
+		local stderr = uv.new_pipe(false)
+
+		local stdout_data = {}
+		local stderr_data = {}
+
+		local handle, pid
+		handle, pid = uv.spawn("curl", {
+			args = { "-sSL", "-m", "10", url },
+			stdio = { nil, stdout, stderr },
+			detached = true,
+		}, vim.schedule_wrap(function(code, signal)
+			-- Clean up handles to avoid leaks and zombie processes
+			if handle and not handle:is_closing() then
+				handle:close()
+			end
+			if stdout and not stdout:is_closing() then
+				stdout:close()
+			end
+			if stderr and not stderr:is_closing() then
+				stderr:close()
+			end
+
+			-- If this is no longer the active job or it was killed, ignore the result
+			if active_fetch_job ~= handle or (signal and signal ~= 0) then
+				return
+			end
+
+			active_fetch_job = nil
+
+			if code ~= 0 then
 				fetch_done(attempt, false, nil)
-			end,
-			callback = vim.schedule_wrap(function(res)
-				local status = res and tonumber(res.status) or nil
-				local body = res and res.body or nil
-				if not status or status < 200 or status >= 400 or not body or body == "" then
-					fetch_done(attempt, false, nil)
-					return
-				end
+				return
+			end
 
-				local ok, data = pcall(vim.json.decode, body)
-				if not ok or not data or not data.data or not data.data.timings then
-					fetch_done(attempt, false, nil)
-					return
-				end
+			local stdout_str = table.concat(stdout_data)
+			if stdout_str == "" then
+				fetch_done(attempt, false, nil)
+				return
+			end
 
-				fetch_done(attempt, true, data)
-			end),
-		})
+			local ok, data = pcall(vim.json.decode, stdout_str)
+			if not ok or not data or not data.data or not data.data.timings then
+				fetch_done(attempt, false, nil)
+				return
+			end
+
+			fetch_done(attempt, true, data)
+		end))
+
+		if not handle then
+			-- Failed to spawn
+			if stdout and not stdout:is_closing() then stdout:close() end
+			if stderr and not stderr:is_closing() then stderr:close() end
+			fetch_done(attempt, false, nil)
+			return
+		end
+
+		active_fetch_job = handle
+
+		uv.read_start(stdout, function(err, data)
+			if data then
+				table.insert(stdout_data, data)
+			end
+		end)
+		uv.read_start(stderr, function(err, data)
+			-- Ignore stderr
+		end)
 	end
 
 	attempt_fetch(1)

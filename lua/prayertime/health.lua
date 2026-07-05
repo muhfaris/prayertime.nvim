@@ -24,12 +24,12 @@ local function check_neovim()
 	end
 end
 
-local function check_plenary()
+local function check_dependencies()
 	report("start", "Dependencies")
-	if pcall(require, "plenary.curl") then
-		report("ok", "plenary.curl available")
+	if vim.fn.executable("curl") == 1 then
+		report("ok", "curl executable available")
 	else
-		report("error", "Missing dependency: nvim-lua/plenary.nvim (plenary.curl not found)")
+		report("error", "curl executable not found in PATH")
 	end
 end
 
@@ -53,9 +53,8 @@ local function request_url(cfg)
 end
 
 local function check_api()
-	local ok, curl = pcall(require, "plenary.curl")
-	if not ok then
-		report("warn", "Skipping API test because plenary.curl is unavailable")
+	if vim.fn.executable("curl") ~= 1 then
+		report("warn", "Skipping API test because curl is unavailable")
 		return
 	end
 
@@ -64,26 +63,34 @@ local function check_api()
 	cfg = cfg or (ok_std and standard.defaults) or { city = "Jakarta", country = "Indonesia", method = 2 }
 
 	local url = request_url(cfg)
-	local success, res = pcall(curl.get, url, { timeout = 3000 })
-	if not success then
-		report("warn", "Prayer times API request failed: " .. tostring(res))
+	local success, obj = pcall(function()
+		if vim.system then
+			return vim.system(
+				{ "curl", "-sSL", "-w", "%{http_code}", "-o", "/dev/null", "-m", "3", url },
+				{ text = true }
+			):wait(3000)
+		else
+			local res = vim.fn.system({ "curl", "-sSL", "-w", "%{http_code}", "-o", "/dev/null", "-m", "3", url })
+			return { stdout = res, code = vim.v.shell_error }
+		end
+	end)
+
+	if not success or not obj then
+		report("warn", "Prayer times API request failed: " .. tostring(obj))
 		return
 	end
-	if not res then
-		report("warn", "Prayer times API returned no response body")
-		return
-	end
-	local status = tonumber(res.status)
+
+	local status = tonumber(obj.stdout)
 	if status and status >= 200 and status < 400 then
 		report("ok", "Prayer times API reachable (" .. status .. ")")
 		return
 	end
-	report("warn", "Prayer times API returned status " .. tostring(res.status))
+	report("warn", "Prayer times API returned status " .. tostring(status or obj.code))
 end
 
 function M.check()
 	check_neovim()
-	check_plenary()
+	check_dependencies()
 	check_notify()
 	check_api()
 end

@@ -124,6 +124,26 @@ local function call_active(method, ...)
 	return fn(...)
 end
 
+local fetch_scheduled = false
+
+local function safe_fetch_times()
+	if fetch_scheduled then
+		return
+	end
+	if vim.v.vim_did_enter == 1 then
+		call_active("fetch_times")
+	else
+		fetch_scheduled = true
+		vim.api.nvim_create_autocmd("VimEnter", {
+			callback = function()
+				fetch_scheduled = false
+				call_active("fetch_times")
+			end,
+			once = true,
+		})
+	end
+end
+
 local function close_today_display()
 	if today_display.win and vim.api.nvim_win_is_valid(today_display.win) then
 		vim.api.nvim_win_close(today_display.win, true)
@@ -171,7 +191,7 @@ end
 function M.setup(opts)
 	local module = apply_format_from_opts(opts)
 	if module then
-		call_active("fetch_times")
+		safe_fetch_times()
 	end
 end
 
@@ -188,11 +208,11 @@ function M.use_format(name, opts)
 	if type(module.setup) == "function" then
 		module.setup(forwarded_opts)
 	end
-	call_active("fetch_times")
+	safe_fetch_times()
 end
 
 function M.refresh()
-	return call_active("fetch_times")
+	return call_active("fetch_times", true)
 end
 
 function M.get_status(...)
@@ -516,8 +536,6 @@ end, {
 })
 
 ensure_timer()
-vim.schedule(function()
-	call_active("fetch_times")
-end)
+safe_fetch_times()
 
 return M
