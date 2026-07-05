@@ -231,6 +231,60 @@ local function request_url()
 	)
 end
 
+local function run_async_curl(url, callback)
+	if vim.system then
+		local job
+		job = vim.system(
+			{ "curl", "-sSL", "-m", "10", "--connect-timeout", "5", url },
+			{ text = true },
+			vim.schedule_wrap(function(obj)
+				callback(job, obj.code, obj.stdout)
+			end)
+		)
+		return job
+	else
+		local stdout = uv.new_pipe(false)
+		local stderr = uv.new_pipe(false)
+		local stdin = uv.new_pipe(false) -- dummy stdin pipe to decouple TTY
+		local stdout_data = {}
+
+		local handle
+		handle = uv.spawn("curl", {
+			args = { "-sSL", "-m", "10", "--connect-timeout", "5", url },
+			stdio = { stdin, stdout, stderr },
+			detached = true,
+		}, vim.schedule_wrap(function(code, signal)
+			if handle and not handle:is_closing() then handle:close() end
+			if stdin and not stdin:is_closing() then stdin:close() end
+			if stdout and not stdout:is_closing() then stdout:close() end
+			if stderr and not stderr:is_closing() then stderr:close() end
+
+			if signal and signal ~= 0 then
+				callback(handle, -1, nil)
+				return
+			end
+			local stdout_str = table.concat(stdout_data)
+			callback(handle, code, stdout_str)
+		end))
+
+		if not handle then
+			if stdin and not stdin:is_closing() then stdin:close() end
+			if stdout and not stdout:is_closing() then stdout:close() end
+			if stderr and not stderr:is_closing() then stderr:close() end
+			return nil
+		end
+
+		uv.read_start(stdout, function(err, data)
+			if data then
+				table.insert(stdout_data, data)
+			end
+		end)
+		uv.read_start(stderr, function(err, data) end)
+
+		return handle
+	end
+end
+
 function M.setup(opts)
 	apply_config(opts)
 end
@@ -291,43 +345,14 @@ function M.fetch_times(force)
 	end
 
 	attempt_fetch = function(attempt)
-		local stdout = uv.new_pipe(false)
-		local stderr = uv.new_pipe(false)
-
-		local stdout_data = {}
-		local stderr_data = {}
-
-		local handle, pid
-		handle, pid = uv.spawn("curl", {
-			args = { "-sSL", "-m", "10", url },
-			stdio = { nil, stdout, stderr },
-			detached = true,
-		}, vim.schedule_wrap(function(code, signal)
-			-- Clean up handles to avoid leaks and zombie processes
-			if handle and not handle:is_closing() then
-				handle:close()
-			end
-			if stdout and not stdout:is_closing() then
-				stdout:close()
-			end
-			if stderr and not stderr:is_closing() then
-				stderr:close()
-			end
-
-			-- If this is no longer the active job or it was killed, ignore the result
-			if active_fetch_job ~= handle or (signal and signal ~= 0) then
+		local job
+		job = run_async_curl(url, function(active_job, code, stdout_str)
+			if active_fetch_job ~= active_job then
 				return
 			end
-
 			active_fetch_job = nil
 
-			if code ~= 0 then
-				fetch_done(attempt, false, nil)
-				return
-			end
-
-			local stdout_str = table.concat(stdout_data)
-			if stdout_str == "" then
+			if code ~= 0 or not stdout_str or stdout_str == "" then
 				fetch_done(attempt, false, nil)
 				return
 			end
@@ -339,26 +364,14 @@ function M.fetch_times(force)
 			end
 
 			fetch_done(attempt, true, data)
-		end))
+		end)
 
-		if not handle then
-			-- Failed to spawn
-			if stdout and not stdout:is_closing() then stdout:close() end
-			if stderr and not stderr:is_closing() then stderr:close() end
+		if not job then
 			fetch_done(attempt, false, nil)
 			return
 		end
 
-		active_fetch_job = handle
-
-		uv.read_start(stdout, function(err, data)
-			if data then
-				table.insert(stdout_data, data)
-			end
-		end)
-		uv.read_start(stderr, function(err, data)
-			-- Ignore stderr
-		end)
+		active_fetch_job = job
 	end
 
 	attempt_fetch(1)
