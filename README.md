@@ -194,7 +194,7 @@ Use this hook for chimes, integration scripts, or analytics.
 
 Need to test your handler quickly? Run `:PrayerTest` (optionally pass a name and HH:MM time) and your configured autocmd will execute immediately without waiting for the real schedule.
 
-Example: play a custom WAV adhan with `aplay`, plus a terminal bell and notification:
+Example: play a custom WAV adhan with `paplay`, plus a terminal bell and notification:
 
 ```lua
 vim.api.nvim_create_autocmd("User", {
@@ -202,13 +202,19 @@ vim.api.nvim_create_autocmd("User", {
   callback = function(ev)
     if ev.data.prayer ~= "Sunrise" then
         vim.api.nvim_out_write("\7") -- terminal bell
-        vim.fn.jobstart({ "aplay", "/home/user/Music/adhan.wav" }, { detach = true })
+        vim.fn.jobstart({ "paplay", "/home/user/Music/adhan.wav" }, { detach = true })
     end
   end,
 })
 ```
 
-> `aplay` ships with ALSA (`alsa-utils` package on most distros). Replace it with `paplay`, `mpv`, or any other player you prefer—just make sure the binary is in `$PATH` (check via `:echo vim.fn.executable("aplay")`). Update the WAV path to your own audio file.
+> `paplay` ships with PulseAudio (present on most distros via `pulseaudio-utils`).
+> On PipeWire systems (Fedora, recent Ubuntu, Arch), `paplay` works seamlessly
+> alongside other audio sources like YouTube. If `paplay` isn't available,
+> alternatives include `aplay` (ALSA-only, may fail if device is busy),
+> `mpv --no-video`, or `ffplay -nodisp -autoexit`.
+> Check availability via `:echo vim.fn.executable("paplay")`.
+> Update the WAV path to your own audio file.
 
 Available fields inside the autocmd callback:
 
