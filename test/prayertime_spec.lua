@@ -13,8 +13,8 @@ local function command_exists(name)
 end
 
 local function stub_aladhan_network()
-	-- Your README says the default "standard" format fetches timings from Aladhan :contentReference[oaicite:5]{index=5}
-	-- We stub common approaches so CI never hits the network.
+	-- The default "standard" format fetches timings from Aladhan via curl/vim.system
+	-- We stub vim.system so CI never hits the network.
 
 	local payload = vim.json.encode({
 		code = 200,
@@ -32,22 +32,10 @@ local function stub_aladhan_network()
 		},
 	})
 
-	-- Stub plenary.curl if you use it
-
-	package.loaded["plenary.curl"] = {
-		get = function(url, opts)
-			if opts and opts.callback then
-				opts.callback({ status = 200, body = payload })
-			end
-			return { status = 200, body = payload }
-		end,
-	}
-
-	-- Stub vim.system if you use it (curl/wget under the hood)
+	-- Stub vim.system (used by the standard format for curl)
 	if vim.system then
 		local orig = vim.system
 		vim.system = function(_cmd, _opts, on_exit)
-			-- emulate async callback signature
 			local obj = {
 				wait = function()
 					return { code = 0, stdout = payload, stderr = "" }

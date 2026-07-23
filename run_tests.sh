@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# Ensure plenary.nvim is available
+# Ensure plenary.nvim is available (test-only dependency; not needed at runtime)
 if [ ! -d "plenary.nvim" ]; then
-    echo "Cloning plenary.nvim for dependencies..."
+    echo "Cloning plenary.nvim for test dependencies (busted)..."
     git clone --depth 1 https://github.com/nvim-lua/plenary.nvim plenary.nvim
 fi
 

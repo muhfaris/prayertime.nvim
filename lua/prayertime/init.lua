@@ -1,18 +1,11 @@
 local util = require("prayertime.util")
+local notify = util.notify
 local formats = {
 	standard = require("prayertime.formats.standard"),
 }
 
 local active_format = formats.standard
 local active_name = "standard"
-
-local notify = vim.notify
-do
-	local ok, plugin = pcall(require, "notify")
-	if ok then
-		notify = plugin
-	end
-end
 
 local REQUIRED_EXPORTS = { "fetch_times", "get_status", "check_for_adhan" }
 local TODAY_COLUMNS = {
@@ -80,6 +73,8 @@ local function timer_callback()
 			notify(("prayertime: check_for_adhan failed: %s"):format(err), vim.log.levels.ERROR)
 		end
 	end
+	-- Force statusline redraw so get_status() updates immediately
+	vim.cmd("redrawstatus")
 end
 
 local function ensure_timer()
@@ -122,6 +117,26 @@ local function call_active(method, ...)
 		return nil
 	end
 	return fn(...)
+end
+
+local fetch_scheduled = false
+
+local function safe_fetch_times()
+	if fetch_scheduled then
+		return
+	end
+	if vim.v.vim_did_enter == 1 then
+		call_active("fetch_times")
+	else
+		fetch_scheduled = true
+		vim.api.nvim_create_autocmd("VimEnter", {
+			callback = function()
+				fetch_scheduled = false
+				call_active("fetch_times")
+			end,
+			once = true,
+		})
+	end
 end
 
 local function close_today_display()
@@ -171,7 +186,8 @@ end
 function M.setup(opts)
 	local module = apply_format_from_opts(opts)
 	if module then
-		call_active("fetch_times")
+		safe_fetch_times()
+		ensure_timer()
 	end
 end
 
@@ -188,11 +204,11 @@ function M.use_format(name, opts)
 	if type(module.setup) == "function" then
 		module.setup(forwarded_opts)
 	end
-	call_active("fetch_times")
+	safe_fetch_times()
 end
 
 function M.refresh()
-	return call_active("fetch_times")
+	return call_active("fetch_times", true)
 end
 
 function M.get_status(...)
@@ -515,9 +531,8 @@ end, {
 	end,
 })
 
-ensure_timer()
-vim.schedule(function()
-	call_active("fetch_times")
-end)
+-- Timer and fetch are now started by setup(), not at require time.
+-- This guards against require() before setup(), and prevents running
+-- with a nil/unconfigured format.
 
 return M

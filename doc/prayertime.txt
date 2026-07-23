@@ -20,7 +20,6 @@ REQUIREMENTS & INSTALLATION                      *prayertime.nvim-install*
 
 Dependencies:
   • Neovim 0.9+ (uses |vim.json| and |vim.pack| APIs).
-  • https://github.com/nvim-lua/plenary.nvim for HTTP requests.
   • Optional: https://github.com/rcarriga/nvim-notify for richer alerts.
 
 Examples:
@@ -28,7 +27,6 @@ Examples:
   -- lazy.nvim
   {
     "muhfaris/prayertime.nvim",
-    dependencies = { "nvim-lua/plenary.nvim" },
     opts = { city = "Jakarta", country = "Indonesia", method = 2 },
   }
 <
@@ -36,7 +34,6 @@ Examples:
   -- packer.nvim
   use({
     "muhfaris/prayertime.nvim",
-    requires = { "nvim-lua/plenary.nvim" },
     config = function()
       require("prayertime").setup({ city = "Jakarta" })
     end,
@@ -44,7 +41,6 @@ Examples:
 <
 >
   " vim-plug
-  Plug "nvim-lua/plenary.nvim"
   Plug "muhfaris/prayertime.nvim"
   lua << EOF
     require("prayertime").setup({ city = "Jakarta", country = "Indonesia" })
@@ -114,7 +110,7 @@ Use `:checkhealth prayertime` to confirm the plugin is ready. The report
 verifies:
 
   • Neovim version meets the 0.9+ requirement.
-  • `plenary.curl` is installed (required for HTTP requests).
+  • `curl` is installed and available in PATH.
   • Optional `nvim-notify` availability (informational if missing).
   • Connectivity to Aladhan’s API using the active/default config.
 

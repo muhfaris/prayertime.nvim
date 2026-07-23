@@ -1,5 +1,15 @@
 local M = {}
 
+-- Shared notify: uses nvim-notify if available, falls back to vim.notify
+local notify = vim.notify
+do
+	local ok, plugin = pcall(require, "notify")
+	if ok then
+		notify = plugin
+	end
+end
+M.notify = notify
+
 local function clamp_minutes(hour, minute)
 	if not hour or not minute then
 		return nil

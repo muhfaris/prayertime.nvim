@@ -1,4 +1,6 @@
+local uv = vim.uv or vim.loop
 local util = require("prayertime.util")
+local notify = util.notify
 local M = {}
 
 local defaults = {
@@ -28,19 +30,20 @@ local prayer_order = {
 	"Isha",
 }
 
-local notify = vim.notify
-do
-	local ok, plugin = pcall(require, "notify")
-	if ok then
-		notify = plugin
-	end
-end
 
-local curl_client = nil
+
+
 local cache_dir = vim.fn.stdpath("cache") .. "/prayertime"
 local cache_file = cache_dir .. "/schedule.json"
-local MAX_FETCH_ATTEMPTS = 3
-local RETRY_DELAY_MS = 1000
+local active_fetch_job = nil
+
+-- Backoff tracking for offline/network-failure scenarios.
+-- After `_fail_threshold` consecutive failures, skip fetching for `_backoff_minutes`.
+local _fail_count = 0
+local _fail_threshold = 2
+local _backoff_minutes = 5
+local _skip_until = 0
+
 local load_cache
 
 local function clone_table(value)
@@ -49,6 +52,9 @@ local function clone_table(value)
 	end
 	return vim.tbl_deep_extend("force", {}, value)
 end
+
+-- Dedup sentinel: track which prayers have already fired adhan
+local _fired_adhan = {}
 
 local function config_signature(cfg)
 	if type(cfg) ~= "table" then
@@ -107,18 +113,7 @@ local function emit_adhan_event(name, time)
 	end)
 end
 
-local function get_curl()
-	if curl_client then
-		return curl_client
-	end
-	local ok, mod = pcall(require, "plenary.curl")
-	if not ok then
-		warn("prayertime: plenary.curl not available; install nvim-lua/plenary.nvim")
-		return nil
-	end
-	curl_client = mod
-	return curl_client
-end
+
 
 local function apply_config(opts)
 	opts = opts or {}
@@ -217,76 +212,165 @@ end
 
 load_cache()
 
+local function url_encode(str)
+	if not str then
+		return ""
+	end
+	str = tostring(str)
+	str = str:gsub("([^%w%.%-%_])", function(c)
+		return string.format("%%%02X", string.byte(c))
+	end)
+	return str
+end
+
 local function request_url()
 	local date = os.date("%d-%m-%Y")
 	return string.format(
 		"http://api.aladhan.com/v1/timingsByCity/%s?city=%s&country=%s&method=%s",
-		vim.fn.escape(date, " "),
-		vim.fn.escape(config.city or "Jakarta", " "),
-		vim.fn.escape(config.country or "Indonesia", " "),
-		config.method or 2
+		url_encode(date),
+		url_encode(config.city or "Jakarta"),
+		url_encode(config.country or "Indonesia"),
+		url_encode(config.method or 2)
 	)
+end
+
+local function run_async_curl(url, callback)
+	if vim.system then
+		local job
+		job = vim.system(
+			{ "curl", "-sSL", "-m", "10", "--connect-timeout", "5", url },
+			{ text = true },
+			vim.schedule_wrap(function(obj)
+				callback(job, obj.code, obj.stdout)
+			end)
+		)
+		return job
+	else
+		local stdout = uv.new_pipe(false)
+		local stderr = uv.new_pipe(false)
+		local stdin = uv.new_pipe(false) -- dummy stdin pipe to decouple TTY
+		local stdout_data = {}
+
+		local handle
+		handle = uv.spawn("curl", {
+			args = { "-sSL", "-m", "10", "--connect-timeout", "5", url },
+			stdio = { stdin, stdout, stderr },
+			detached = true,
+		}, vim.schedule_wrap(function(code, signal)
+			if handle and not handle:is_closing() then handle:close() end
+			if stdin and not stdin:is_closing() then stdin:close() end
+			if stdout and not stdout:is_closing() then stdout:close() end
+			if stderr and not stderr:is_closing() then stderr:close() end
+
+			if signal and signal ~= 0 then
+				callback(handle, -1, nil)
+				return
+			end
+			local stdout_str = table.concat(stdout_data)
+			callback(handle, code, stdout_str)
+		end))
+
+		if not handle then
+			if stdin and not stdin:is_closing() then stdin:close() end
+			if stdout and not stdout:is_closing() then stdout:close() end
+			if stderr and not stderr:is_closing() then stderr:close() end
+			return nil
+		end
+
+		uv.read_start(stdout, function(err, data)
+			if data then
+				table.insert(stdout_data, data)
+			end
+		end)
+		uv.read_start(stderr, function(err, data) end)
+
+		return handle
+	end
 end
 
 function M.setup(opts)
 	apply_config(opts)
-	M.fetch_times()
 end
 
-function M.fetch_times()
-	local curl = get_curl()
-	if not curl then
+function M.fetch_times(force)
+	if vim.fn.executable("curl") ~= 1 then
+		warn("prayertime: curl command not found in PATH")
 		return
 	end
+
+	-- Cancel any active job
+	if active_fetch_job then
+		if type(active_fetch_job.is_closing) == "function" and not active_fetch_job:is_closing() then
+			pcall(active_fetch_job.kill, active_fetch_job, 15)
+		end
+		active_fetch_job = nil
+	end
+
+	-- Smart caching: if we already have today's data, skip fetch entirely
+	if not force and last_updated and not vim.tbl_isempty(prayer_times) then
+		local cached_date = os.date("%d-%m-%Y", last_updated)
+		local today_date = os.date("%d-%m-%Y")
+		if cached_date == today_date then
+			return
+		end
+	end
+
+	-- Backoff: after repeated failures, skip fetching for a while.
+	-- This is the key fix for offline users — no more 2-minute hangs.
+	-- The backoff is bypassed when `force` is true (e.g. :PrayerReload).
+	if not force and os.time() < _skip_until then
+		return
+	end
+
 	local url = request_url()
 
-	local function fetch_done(attempt, ok, data)
-		if ok and data then
-			last_payload = data
-			last_updated = os.time()
-			prayer_times = clone_table(data.data.timings or {}) or {}
-			compute_derived_times()
-			save_cache()
+	local job
+	job = run_async_curl(url, function(active_job, code, stdout_str)
+		if active_fetch_job ~= active_job then
 			return
 		end
-		if attempt >= MAX_FETCH_ATTEMPTS then
-			notify(
-				("prayertime: failed to fetch schedule after %d attempts"):format(MAX_FETCH_ATTEMPTS),
-				vim.log.levels.ERROR
-			)
+		active_fetch_job = nil
+
+		if code ~= 0 or not stdout_str or stdout_str == "" then
+			_fail_count = _fail_count + 1
+			if _fail_count >= _fail_threshold then
+				_skip_until = os.time() + _backoff_minutes * 60
+				_fail_count = 0
+			end
 			return
 		end
-		vim.defer_fn(function()
-			attempt_fetch(attempt + 1)
-		end, RETRY_DELAY_MS)
+
+		local ok, data = pcall(vim.json.decode, stdout_str)
+		if not ok or not data or not data.data or not data.data.timings then
+			_fail_count = _fail_count + 1
+			if _fail_count >= _fail_threshold then
+				_skip_until = os.time() + _backoff_minutes * 60
+				_fail_count = 0
+			end
+			return
+		end
+
+		-- Success — reset failure tracking
+		_fail_count = 0
+		_skip_until = 0
+
+		last_payload = data
+		last_updated = os.time()
+		prayer_times = clone_table(data.data.timings or {}) or {}
+		compute_derived_times()
+		save_cache()
+	end)
+
+	if not job then
+		_fail_count = _fail_count + 1
+		if _fail_count >= _fail_threshold then
+			_skip_until = os.time() + _backoff_minutes * 60
+			_fail_count = 0
+		end
+		return
 	end
 
-	local function attempt_fetch(attempt)
-		curl.get(url, {
-			timeout = 10000,
-			on_error = function()
-				fetch_done(attempt, false, nil)
-			end,
-			callback = vim.schedule_wrap(function(res)
-				local status = res and tonumber(res.status) or nil
-				local body = res and res.body or nil
-				if not status or status < 200 or status >= 400 or not body or body == "" then
-					fetch_done(attempt, false, nil)
-					return
-				end
-
-				local ok, data = pcall(vim.json.decode, body)
-				if not ok or not data or not data.data or not data.data.timings then
-					fetch_done(attempt, false, nil)
-					return
-				end
-
-				fetch_done(attempt, true, data)
-			end),
-		})
-	end
-
-	attempt_fetch(1)
+	active_fetch_job = job
 end
 
 function M.get_status()
@@ -351,15 +435,30 @@ function M.get_status()
 end
 
 function M.check_for_adhan()
-	local current_time = os.date("%H:%M")
-	for name, time in pairs(derived_times) do
-		if current_time == time then
-			notify(
-				("🕌 %s prayer is starting now (%s)"):format(name, time),
-				vim.log.levels.INFO,
-				{ title = "Prayer Reminder" }
-			)
-			emit_adhan_event(name, time)
+	local now_minutes = util.parse_time_str(os.date("%H:%M"))
+	if not now_minutes then
+		return
+	end
+	for name, time_str in pairs(derived_times) do
+		local prayer_minutes = util.parse_time_str(time_str)
+		if prayer_minutes then
+			local diff = now_minutes - prayer_minutes
+			if diff >= -1 and diff <= 1 then
+				-- Within ±1 minute window — fire once per prayer
+				if not _fired_adhan[name] then
+					_fired_adhan[name] = true
+					notify(
+						("🕌 %s prayer is starting now (%s)"):format(name, time_str),
+						vim.log.levels.INFO,
+						{ title = "Prayer Reminder" }
+					)
+					emit_adhan_event(name, time_str)
+				end
+			else
+				-- Outside the window — reset sentinel so it can fire again
+				-- on the next cycle (e.g. after prayer passes)
+				_fired_adhan[name] = nil
+			end
 		end
 	end
 end

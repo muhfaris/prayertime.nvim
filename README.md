@@ -35,7 +35,6 @@ prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accur
 
 ## 📋 Requirements
 - Neovim 0.9+ (`vim.pack`, `vim.json`)
-- [`nvim-lua/plenary.nvim`](https://github.com/nvim-lua/plenary.nvim)
 - Optional: [`rcarriga/nvim-notify`](https://github.com/rcarriga/nvim-notify) for nicer alerts
 
 ## 🚀 Installation examples
@@ -44,7 +43,6 @@ prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accur
 ```lua
 {
   "muhfaris/prayertime.nvim",
-  dependencies = { "nvim-lua/plenary.nvim" },
   opts = { city = "Jakarta", country = "Indonesia", method = 2 },
 }
 ```
@@ -53,7 +51,6 @@ prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accur
 ```lua
 use({
   "muhfaris/prayertime.nvim",
-  requires = { "nvim-lua/plenary.nvim" },
   config = function()
     require("prayertime").setup({ city = "Jakarta" })
   end,
@@ -62,7 +59,6 @@ use({
 
 ### vim-plug
 ```vim
-Plug "nvim-lua/plenary.nvim"
 Plug "muhfaris/prayertime.nvim"
 lua << EOF
 require("prayertime").setup({
@@ -198,7 +194,7 @@ Use this hook for chimes, integration scripts, or analytics.
 
 Need to test your handler quickly? Run `:PrayerTest` (optionally pass a name and HH:MM time) and your configured autocmd will execute immediately without waiting for the real schedule.
 
-Example: play a custom WAV adhan with `aplay`, plus a terminal bell and notification:
+Example: play a custom WAV adhan with `paplay`, plus a terminal bell and notification:
 
 ```lua
 vim.api.nvim_create_autocmd("User", {
@@ -206,13 +202,19 @@ vim.api.nvim_create_autocmd("User", {
   callback = function(ev)
     if ev.data.prayer ~= "Sunrise" then
         vim.api.nvim_out_write("\7") -- terminal bell
-        vim.fn.jobstart({ "aplay", "/home/user/Music/adhan.wav" }, { detach = true })
+        vim.fn.jobstart({ "paplay", "/home/user/Music/adhan.wav" }, { detach = true })
     end
   end,
 })
 ```
 
-> `aplay` ships with ALSA (`alsa-utils` package on most distros). Replace it with `paplay`, `mpv`, or any other player you prefer—just make sure the binary is in `$PATH` (check via `:echo vim.fn.executable("aplay")`). Update the WAV path to your own audio file.
+> `paplay` ships with PulseAudio (present on most distros via `pulseaudio-utils`).
+> On PipeWire systems (Fedora, recent Ubuntu, Arch), `paplay` works seamlessly
+> alongside other audio sources like YouTube. If `paplay` isn't available,
+> alternatives include `aplay` (ALSA-only, may fail if device is busy),
+> `mpv --no-video`, or `ffplay -nodisp -autoexit`.
+> Check availability via `:echo vim.fn.executable("paplay")`.
+> Update the WAV path to your own audio file.
 
 Available fields inside the autocmd callback:
 
@@ -259,5 +261,4 @@ error notification is shown.
 Run `:checkhealth prayertime` to verify:
 
 - Neovim version and optional `rcarriga/nvim-notify` integration.
-- `nvim-lua/plenary.nvim` availability (required for HTTP).
 - Reachability of Aladhan’s API using your current/default location settings.

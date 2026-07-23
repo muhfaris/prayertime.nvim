@@ -2,7 +2,7 @@
 -- Keep the runtime isolated, fast, and reproducible.
 
 vim.opt.runtimepath:append(vim.fn.getcwd())
-vim.opt.runtimepath:append(vim.fn.getcwd() .. "/../plenary.nvim") -- if you vendor it in CI
+vim.opt.runtimepath:append(vim.fn.getcwd() .. "/../plenary.nvim") -- test-only dependency (bundles busted)
 vim.opt.swapfile = false
 vim.opt.backup = false
 vim.opt.writebackup = false
