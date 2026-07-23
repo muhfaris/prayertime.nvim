@@ -1,31 +1,20 @@
 -- test/ci_runner.lua
--- Runs plenary tests and writes a very small JUnit report.
--- Not perfect, but good enough for CI visibility.
+-- Runs tests via plenary.test_harness (test-only dependency; not needed at runtime)
+-- and writes a minimal JUnit report for CI visibility.
 
 local ok, harness = pcall(require, "plenary.test_harness")
 if not ok then
-	vim.api.nvim_err_writeln("plenary not found on runtimepath")
+	vim.api.nvim_err_writeln("plenary.nvim not found on runtimepath (test dependency)")
 	vim.cmd("cq")
 end
-
-local results = {
-	tests = 0,
-	failures = 0,
-	cases = {},
-}
-
--- Monkeypatch busted's `it` to collect failures is messy.
--- So we run the suite and rely on exit code for pass/fail,
--- and only produce a minimal report with pass/fail totals.
--- If you want per-test cases, you’ll need deeper busted hooks.
 
 local function write_junit(path, failed)
 	local f = assert(io.open(path, "w"))
 	local tests = 1
 	local failures = failed and 1 or 0
 	f:write('<?xml version="1.0" encoding="UTF-8"?>\n')
-	f:write(string.format('<testsuite name="plenary" tests="%d" failures="%d">\n', tests, failures))
-	f:write('  <testcase classname="plenary" name="test-suite">\n')
+	f:write(string.format('<testsuite name="prayertime" tests="%d" failures="%d">\n', tests, failures))
+	f:write('  <testcase classname="prayertime" name="test-suite">\n')
 	if failed then
 		f:write('    <failure message="Tests failed">See workflow logs for details</failure>\n')
 	end

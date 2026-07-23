@@ -1,5 +1,6 @@
 local uv = vim.uv or vim.loop
 local util = require("prayertime.util")
+local notify = util.notify
 local M = {}
 
 local defaults = {
@@ -29,21 +30,20 @@ local prayer_order = {
 	"Isha",
 }
 
-local notify = vim.notify
-do
-	local ok, plugin = pcall(require, "notify")
-	if ok then
-		notify = plugin
-	end
-end
+
 
 
 local cache_dir = vim.fn.stdpath("cache") .. "/prayertime"
 local cache_file = cache_dir .. "/schedule.json"
-local MAX_FETCH_ATTEMPTS = 3
-local RETRY_DELAY_MS = 1000
 local active_fetch_job = nil
-local active_retry_timer = nil
+
+-- Backoff tracking for offline/network-failure scenarios.
+-- After `_fail_threshold` consecutive failures, skip fetching for `_backoff_minutes`.
+local _fail_count = 0
+local _fail_threshold = 2
+local _backoff_minutes = 5
+local _skip_until = 0
+
 local load_cache
 
 local function clone_table(value)
@@ -52,6 +52,9 @@ local function clone_table(value)
 	end
 	return vim.tbl_deep_extend("force", {}, value)
 end
+
+-- Dedup sentinel: track which prayers have already fired adhan
+local _fired_adhan = {}
 
 local function config_signature(cfg)
 	if type(cfg) ~= "table" then
@@ -303,13 +306,7 @@ function M.fetch_times(force)
 		active_fetch_job = nil
 	end
 
-	-- Stop any active retry timer
-	if active_retry_timer then
-		pcall(vim.fn.timer_stop, active_retry_timer)
-		active_retry_timer = nil
-	end
-
-	-- Smart caching validation: check if cache is valid for today (unless forced)
+	-- Smart caching: if we already have today's data, skip fetch entirely
 	if not force and last_updated and not vim.tbl_isempty(prayer_times) then
 		local cached_date = os.date("%d-%m-%Y", last_updated)
 		local today_date = os.date("%d-%m-%Y")
@@ -318,63 +315,62 @@ function M.fetch_times(force)
 		end
 	end
 
+	-- Backoff: after repeated failures, skip fetching for a while.
+	-- This is the key fix for offline users — no more 2-minute hangs.
+	-- The backoff is bypassed when `force` is true (e.g. :PrayerReload).
+	if not force and os.time() < _skip_until then
+		return
+	end
+
 	local url = request_url()
 
-	local attempt_fetch
+	local job
+	job = run_async_curl(url, function(active_job, code, stdout_str)
+		if active_fetch_job ~= active_job then
+			return
+		end
+		active_fetch_job = nil
 
-	local function fetch_done(attempt, ok, data)
-		if ok and data then
-			last_payload = data
-			last_updated = os.time()
-			prayer_times = clone_table(data.data.timings or {}) or {}
-			compute_derived_times()
-			save_cache()
+		if code ~= 0 or not stdout_str or stdout_str == "" then
+			_fail_count = _fail_count + 1
+			if _fail_count >= _fail_threshold then
+				_skip_until = os.time() + _backoff_minutes * 60
+				_fail_count = 0
+			end
 			return
 		end
-		if attempt >= MAX_FETCH_ATTEMPTS then
-			notify(
-				("prayertime: failed to fetch schedule after %d attempts"):format(MAX_FETCH_ATTEMPTS),
-				vim.log.levels.ERROR
-			)
+
+		local ok, data = pcall(vim.json.decode, stdout_str)
+		if not ok or not data or not data.data or not data.data.timings then
+			_fail_count = _fail_count + 1
+			if _fail_count >= _fail_threshold then
+				_skip_until = os.time() + _backoff_minutes * 60
+				_fail_count = 0
+			end
 			return
 		end
-		active_retry_timer = vim.fn.timer_start(RETRY_DELAY_MS, function()
-			active_retry_timer = nil
-			attempt_fetch(attempt + 1)
-		end)
+
+		-- Success — reset failure tracking
+		_fail_count = 0
+		_skip_until = 0
+
+		last_payload = data
+		last_updated = os.time()
+		prayer_times = clone_table(data.data.timings or {}) or {}
+		compute_derived_times()
+		save_cache()
+	end)
+
+	if not job then
+		_fail_count = _fail_count + 1
+		if _fail_count >= _fail_threshold then
+			_skip_until = os.time() + _backoff_minutes * 60
+			_fail_count = 0
+		end
+		return
 	end
 
-	attempt_fetch = function(attempt)
-		local job
-		job = run_async_curl(url, function(active_job, code, stdout_str)
-			if active_fetch_job ~= active_job then
-				return
-			end
-			active_fetch_job = nil
-
-			if code ~= 0 or not stdout_str or stdout_str == "" then
-				fetch_done(attempt, false, nil)
-				return
-			end
-
-			local ok, data = pcall(vim.json.decode, stdout_str)
-			if not ok or not data or not data.data or not data.data.timings then
-				fetch_done(attempt, false, nil)
-				return
-			end
-
-			fetch_done(attempt, true, data)
-		end)
-
-		if not job then
-			fetch_done(attempt, false, nil)
-			return
-		end
-
-		active_fetch_job = job
-	end
-
-	attempt_fetch(1)
+	active_fetch_job = job
 end
 
 function M.get_status()
@@ -439,15 +435,30 @@ function M.get_status()
 end
 
 function M.check_for_adhan()
-	local current_time = os.date("%H:%M")
-	for name, time in pairs(derived_times) do
-		if current_time == time then
-			notify(
-				("🕌 %s prayer is starting now (%s)"):format(name, time),
-				vim.log.levels.INFO,
-				{ title = "Prayer Reminder" }
-			)
-			emit_adhan_event(name, time)
+	local now_minutes = util.parse_time_str(os.date("%H:%M"))
+	if not now_minutes then
+		return
+	end
+	for name, time_str in pairs(derived_times) do
+		local prayer_minutes = util.parse_time_str(time_str)
+		if prayer_minutes then
+			local diff = now_minutes - prayer_minutes
+			if diff >= -1 and diff <= 1 then
+				-- Within ±1 minute window — fire once per prayer
+				if not _fired_adhan[name] then
+					_fired_adhan[name] = true
+					notify(
+						("🕌 %s prayer is starting now (%s)"):format(name, time_str),
+						vim.log.levels.INFO,
+						{ title = "Prayer Reminder" }
+					)
+					emit_adhan_event(name, time_str)
+				end
+			else
+				-- Outside the window — reset sentinel so it can fire again
+				-- on the next cycle (e.g. after prayer passes)
+				_fired_adhan[name] = nil
+			end
 		end
 	end
 end

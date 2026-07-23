@@ -24,8 +24,8 @@ local function check_neovim()
 	end
 end
 
-local function check_dependencies()
-	report("start", "Dependencies")
+local function check_network_tool()
+	report("start", "Network tool")
 	if vim.fn.executable("curl") == 1 then
 		report("ok", "curl executable available")
 	else
@@ -90,7 +90,7 @@ end
 
 function M.check()
 	check_neovim()
-	check_dependencies()
+	check_network_tool()
 	check_notify()
 	check_api()
 end

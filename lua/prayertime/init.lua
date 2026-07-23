@@ -1,18 +1,11 @@
 local util = require("prayertime.util")
+local notify = util.notify
 local formats = {
 	standard = require("prayertime.formats.standard"),
 }
 
 local active_format = formats.standard
 local active_name = "standard"
-
-local notify = vim.notify
-do
-	local ok, plugin = pcall(require, "notify")
-	if ok then
-		notify = plugin
-	end
-end
 
 local REQUIRED_EXPORTS = { "fetch_times", "get_status", "check_for_adhan" }
 local TODAY_COLUMNS = {
@@ -80,6 +73,8 @@ local function timer_callback()
 			notify(("prayertime: check_for_adhan failed: %s"):format(err), vim.log.levels.ERROR)
 		end
 	end
+	-- Force statusline redraw so get_status() updates immediately
+	vim.cmd("redrawstatus")
 end
 
 local function ensure_timer()
@@ -192,6 +187,7 @@ function M.setup(opts)
 	local module = apply_format_from_opts(opts)
 	if module then
 		safe_fetch_times()
+		ensure_timer()
 	end
 end
 
@@ -535,7 +531,8 @@ end, {
 	end,
 })
 
-ensure_timer()
-safe_fetch_times()
+-- Timer and fetch are now started by setup(), not at require time.
+-- This guards against require() before setup(), and prevents running
+-- with a nil/unconfigured format.
 
 return M

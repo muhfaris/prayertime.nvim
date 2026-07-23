@@ -28,7 +28,7 @@ jobs:
           neovim: true
           version: ${{ matrix.nvim }}
 
-      - name: Prepare runtime (plenary + plugin)
+      - name: Install test dependencies (plenary.nvim for busted)
         run: |
           set -euo pipefail
           mkdir -p .ci/site/pack/ci/start

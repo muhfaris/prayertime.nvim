@@ -35,7 +35,6 @@ prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accur
 
 ## 📋 Requirements
 - Neovim 0.9+ (`vim.pack`, `vim.json`)
-- [`nvim-lua/plenary.nvim`](https://github.com/nvim-lua/plenary.nvim)
 - Optional: [`rcarriga/nvim-notify`](https://github.com/rcarriga/nvim-notify) for nicer alerts
 
 ## 🚀 Installation examples
@@ -44,7 +43,6 @@ prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accur
 ```lua
 {
   "muhfaris/prayertime.nvim",
-  dependencies = { "nvim-lua/plenary.nvim" },
   opts = { city = "Jakarta", country = "Indonesia", method = 2 },
 }
 ```
@@ -53,7 +51,6 @@ prayertime.nvim is a lightweight, standalone Neovim plugin that integrates accur
 ```lua
 use({
   "muhfaris/prayertime.nvim",
-  requires = { "nvim-lua/plenary.nvim" },
   config = function()
     require("prayertime").setup({ city = "Jakarta" })
   end,
@@ -62,7 +59,6 @@ use({
 
 ### vim-plug
 ```vim
-Plug "nvim-lua/plenary.nvim"
 Plug "muhfaris/prayertime.nvim"
 lua << EOF
 require("prayertime").setup({
@@ -259,5 +255,4 @@ error notification is shown.
 Run `:checkhealth prayertime` to verify:
 
 - Neovim version and optional `rcarriga/nvim-notify` integration.
-- `nvim-lua/plenary.nvim` availability (required for HTTP).
 - Reachability of Aladhan’s API using your current/default location settings.
